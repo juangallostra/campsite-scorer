@@ -4,70 +4,104 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Campsite Scorer — Evaluador de terrenos para acampar</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   :root { --good:#2ecc71; --bad:#e74c3c; --bg:#0f1419; --panel:#1a2129; --text:#e8edf2; --muted:#8a97a3; }
   * { box-sizing: border-box; }
   body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
-  header { padding: 24px 32px 8px; }
+  header { padding: 20px 32px 8px; }
   h1 { font-size: 1.4rem; margin: 0 0 4px; }
   p.sub { color: var(--muted); margin: 0; font-size: 0.9rem; }
-  main { padding: 16px 32px 48px; max-width: 1000px; margin: 0 auto; }
-  .controls { display:flex; gap:12px; flex-wrap:wrap; align-items:center; background:var(--panel); padding:16px; border-radius:12px; margin-bottom:20px; }
-  button { background:#3a7bd5; color:white; border:none; padding:10px 18px; border-radius:8px; font-size:0.95rem; cursor:pointer; }
+  main { padding: 16px 32px 48px; max-width: 1100px; margin: 0 auto; }
+  section { margin-bottom: 28px; }
+  section h2 { font-size: 1rem; color: var(--muted); font-weight:600; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .03em;}
+  .controls { display:flex; gap:12px; flex-wrap:wrap; align-items:center; background:var(--panel); padding:14px 16px; border-radius:12px; margin-bottom:14px; }
+  button { background:#3a7bd5; color:white; border:none; padding:9px 16px; border-radius:8px; font-size:0.9rem; cursor:pointer; }
   button:hover { background:#5590e0; }
   button.secondary { background:#2c3540; }
   button.secondary:hover { background:#39434f; }
   input[type=file] { color: var(--muted); }
+  input[type=range] { width: 140px; }
+  #map { height: 480px; border-radius: 12px; }
+  .map-hint { color: var(--muted); font-size: 0.82rem; margin: 8px 0 0; }
   .images { display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top: 10px; }
   .card { background:var(--panel); border-radius:12px; padding:14px; }
-  .card h3 { margin: 0 0 10px; font-size: 0.9rem; color: var(--muted); font-weight:600; }
+  .card h3 { margin: 0 0 10px; font-size: 0.85rem; color: var(--muted); font-weight:600; }
   img.result { width:100%; border-radius: 8px; image-rendering: pixelated; }
-  .stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-top:16px; }
+  .stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap:12px; margin-top:14px; }
   .stat { background:var(--panel); border-radius:12px; padding:14px; }
-  .stat .value { font-size:1.4rem; font-weight:700; }
-  .stat .label { color:var(--muted); font-size:0.8rem; margin-top:4px; }
+  .stat .value { font-size:1.3rem; font-weight:700; }
+  .stat .label { color:var(--muted); font-size:0.78rem; margin-top:4px; }
   .legend { display:flex; align-items:center; gap:10px; margin-top:10px; font-size:0.8rem; color:var(--muted); }
   .legend .bar { flex:1; height:10px; border-radius:6px; background: linear-gradient(90deg, var(--bad), #f1c40f, var(--good)); }
-  #loading { color: var(--muted); font-size:0.9rem; display:none; }
-  footer { color: var(--muted); font-size:0.78rem; padding: 12px 32px 32px; max-width:1000px; margin:0 auto; line-height:1.5; }
+  #loading, #loadingMap { color: var(--muted); font-size:0.85rem; }
+  .leaflet-popup-content-wrapper { background: var(--panel); color: var(--text); }
+  .leaflet-popup-tip { background: var(--panel); }
+  .popup-grid { font-size: 0.78rem; line-height: 1.5; }
+  footer { color: var(--muted); font-size:0.78rem; padding: 12px 32px 32px; max-width:1100px; margin:0 auto; line-height:1.5; }
+  hr.sep { border: none; border-top: 1px solid #232c36; margin: 28px 0; }
 </style>
 </head>
 <body>
 <header>
   <h1>🏕️ Campsite Scorer</h1>
-  <p class="sub">Heurística de idoneidad de terreno (pendiente, drenaje, exposición, orientación) aplicada sobre un modelo de elevación (DEM).</p>
+  <p class="sub">Heurística de idoneidad de terreno (pendiente, drenaje, exposición, orientación) aplicada sobre un modelo de elevación (DEM) real.</p>
 </header>
 <main>
-  <div class="controls">
-    <button id="btnDemo">Probar con terreno de ejemplo</button>
-    <label class="secondary" style="background:#2c3540; padding:10px 18px; border-radius:8px; cursor:pointer;">
-      Subir DEM (GeoTIFF)
-      <input type="file" id="fileInput" accept=".tif,.tiff" style="display:none;">
-    </label>
-    <span id="loading">Calculando…</span>
-  </div>
 
-  <div class="images" id="images" style="display:none;">
-    <div class="card">
-      <h3>RELIEVE (hillshade)</h3>
-      <img class="result" id="imgHillshade">
+  <section>
+    <h2>Mapa interactivo (DEM real por coordenadas)</h2>
+    <div class="controls">
+      <span>Radio de análisis:</span>
+      <input type="range" id="radiusSlider" min="1" max="15" step="1" value="3">
+      <span id="radiusLabel">3 km</span>
+      <span id="loadingMap"></span>
     </div>
-    <div class="card">
-      <h3>IDONEIDAD PARA ACAMPAR</h3>
-      <img class="result" id="imgScore">
-      <div class="legend"><span>malo</span><div class="bar"></div><span>bueno</span></div>
-    </div>
-  </div>
+    <div id="map"></div>
+    <p class="map-hint">Haz clic en cualquier punto del mapa para descargar el relieve real de esa zona y calcular su idoneidad. Vuelve a hacer clic sobre el resultado (área de color) para ver el desglose por criterio del punto exacto.</p>
+  </section>
 
-  <div class="stats" id="stats" style="display:none;"></div>
+  <hr class="sep">
+
+  <section>
+    <h2>Modo offline: terreno sintético / subir tu propio DEM</h2>
+    <div class="controls">
+      <button id="btnDemo" class="secondary">Probar con terreno de ejemplo</button>
+      <label class="secondary" style="background:#2c3540; padding:9px 16px; border-radius:8px; cursor:pointer; font-size:0.9rem;">
+        Subir DEM (GeoTIFF)
+        <input type="file" id="fileInput" accept=".tif,.tiff" style="display:none;">
+      </label>
+      <span id="loading"></span>
+    </div>
+
+    <div class="images" id="images" style="display:none;">
+      <div class="card">
+        <h3>RELIEVE (hillshade)</h3>
+        <img class="result" id="imgHillshade">
+      </div>
+      <div class="card">
+        <h3>IDONEIDAD PARA ACAMPAR</h3>
+        <img class="result" id="imgScore">
+        <div class="legend"><span>malo</span><div class="bar"></div><span>bueno</span></div>
+      </div>
+    </div>
+
+    <div class="stats" id="stats" style="display:none;"></div>
+  </section>
+
 </main>
 <footer>
   Score = 0.38·pendiente + 0.22·drenaje (curvatura) + 0.22·posición relativa (TPI: evita crestas expuestas y fondos de valle fríos)
-  + 0.08·orientación + 0.10·rugosidad. Calculado a partir de un DEM (30m Copernicus/SRTM o mejor resolución si subes tu propio GeoTIFF).
-  No sustituye la inspección visual del terreno: no detecta piedras sueltas, árboles muertos ni riesgo de crecida puntual.
+  + 0.08·orientación + 0.10·rugosidad. El mapa interactivo usa elevación real (teselas públicas derivadas de SRTM/otros DEM globales,
+  resolución ~30-150m según el zoom). No sustituye la inspección visual del terreno: no detecta piedras sueltas, árboles muertos ni
+  riesgo de crecida puntual.
 </footer>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
+// ---------------------------------------------------------------------
+// Modo offline (demo sintética / subida de GeoTIFF) — igual que antes
+// ---------------------------------------------------------------------
 const btnDemo = document.getElementById('btnDemo');
 const fileInput = document.getElementById('fileInput');
 const loading = document.getElementById('loading');
@@ -76,7 +110,7 @@ const statsDiv = document.getElementById('stats');
 const imgHillshade = document.getElementById('imgHillshade');
 const imgScore = document.getElementById('imgScore');
 
-function renderResult(data) {
+function renderOfflineResult(data) {
   imgHillshade.src = 'data:image/png;base64,' + data.hillshade_png_base64;
   imgScore.src = 'data:image/png;base64,' + data.score_heatmap_png_base64;
   imagesDiv.style.display = 'grid';
@@ -92,30 +126,30 @@ function renderResult(data) {
 }
 
 async function runDemo() {
-  loading.style.display = 'inline';
+  loading.textContent = 'Calculando…';
   try {
     const res = await fetch('/api/demo');
     if (!res.ok) throw new Error(await res.text());
-    renderResult(await res.json());
+    renderOfflineResult(await res.json());
   } catch (e) {
     alert('Error calculando la demo: ' + e.message);
   } finally {
-    loading.style.display = 'none';
+    loading.textContent = '';
   }
 }
 
 async function uploadDem(file) {
-  loading.style.display = 'inline';
+  loading.textContent = 'Procesando GeoTIFF…';
   try {
     const form = new FormData();
     form.append('file', file);
     const res = await fetch('/api/score', { method: 'POST', body: form });
     if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
-    renderResult(await res.json());
+    renderOfflineResult(await res.json());
   } catch (e) {
     alert('Error procesando el GeoTIFF: ' + e.message);
   } finally {
-    loading.style.display = 'none';
+    loading.textContent = '';
   }
 }
 
@@ -123,6 +157,83 @@ btnDemo.addEventListener('click', runDemo);
 fileInput.addEventListener('change', (e) => {
   if (e.target.files[0]) uploadDem(e.target.files[0]);
 });
+
+// ---------------------------------------------------------------------
+// Modo mapa interactivo (DEM real por coordenadas)
+// ---------------------------------------------------------------------
+const map = L.map('map').setView([41.6, 0.6], 9); // Pirineo/Lleida por defecto
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 17,
+}).addTo(map);
+
+const radiusSlider = document.getElementById('radiusSlider');
+const radiusLabel = document.getElementById('radiusLabel');
+const loadingMap = document.getElementById('loadingMap');
+radiusSlider.addEventListener('input', () => { radiusLabel.textContent = radiusSlider.value + ' km'; });
+
+let currentOverlay = null;
+let currentMarker = null;
+let currentInspectGrid = null;
+let currentBounds = null;
+
+function nearestGridValue(grid, lat, lon, bounds) {
+  const rows = grid.length, cols = grid[0].length;
+  const rowFrac = (bounds.north - lat) / (bounds.north - bounds.south);
+  const colFrac = (lon - bounds.west) / (bounds.east - bounds.west);
+  const row = Math.min(rows - 1, Math.max(0, Math.round(rowFrac * (rows - 1))));
+  const col = Math.min(cols - 1, Math.max(0, Math.round(colFrac * (cols - 1))));
+  return grid[row][col];
+}
+
+function showInspectPopup(lat, lon) {
+  if (!currentInspectGrid || !currentBounds) return;
+  const g = currentInspectGrid;
+  const score = nearestGridValue(g.score, lat, lon, currentBounds);
+  const slope = nearestGridValue(g.slope_deg, lat, lon, currentBounds);
+  const sub = g.sub_scores;
+  const html = `
+    <div class="popup-grid">
+      <b>Score total: ${score.toFixed(0)}/100</b><br>
+      Pendiente: ${slope.toFixed(1)}° (nota ${nearestGridValue(sub.slope, lat, lon, currentBounds).toFixed(0)})<br>
+      Drenaje: ${nearestGridValue(sub.drainage, lat, lon, currentBounds).toFixed(0)}<br>
+      Posición (viento/aire frío): ${nearestGridValue(sub.position, lat, lon, currentBounds).toFixed(0)}<br>
+      Orientación: ${nearestGridValue(sub.aspect, lat, lon, currentBounds).toFixed(0)}<br>
+      Rugosidad: ${nearestGridValue(sub.roughness, lat, lon, currentBounds).toFixed(0)}
+    </div>`;
+  L.popup().setLatLng([lat, lon]).setContent(html).openOn(map);
+}
+
+async function analyzeLocation(lat, lon) {
+  loadingMap.textContent = 'Descargando relieve real y calculando…';
+  if (currentMarker) map.removeLayer(currentMarker);
+  currentMarker = L.marker([lat, lon]).addTo(map);
+
+  try {
+    const radiusKm = radiusSlider.value;
+    const res = await fetch(`/api/score_by_location?lat=${lat}&lon=${lon}&radius_km=${radiusKm}`);
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const data = await res.json();
+
+    if (currentOverlay) map.removeLayer(currentOverlay);
+    const b = data.bounds;
+    const leafletBounds = [[b.south, b.west], [b.north, b.east]];
+    const imgUrl = 'data:image/png;base64,' + data.score_heatmap_png_base64;
+    currentOverlay = L.imageOverlay(imgUrl, leafletBounds, { opacity: 0.65 }).addTo(map);
+    currentOverlay.on('click', (e) => showInspectPopup(e.latlng.lat, e.latlng.lng));
+
+    currentInspectGrid = data.inspect_grid;
+    currentBounds = b;
+
+    showInspectPopup(lat, lon);
+  } catch (e) {
+    alert('Error obteniendo el terreno real: ' + e.message);
+  } finally {
+    loadingMap.textContent = '';
+  }
+}
+
+map.on('click', (e) => analyzeLocation(e.latlng.lat, e.latlng.lng));
 </script>
 </body>
 </html>
