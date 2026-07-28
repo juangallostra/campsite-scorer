@@ -53,7 +53,7 @@ def _hillshade_png_base64(dem: np.ndarray) -> str:
     return _array_to_png_base64(rgb)
 
 
-def _downsample_grid(arr: np.ndarray, target: int = 30) -> list:
+def _downsample_grid(arr: np.ndarray, target: int = 50) -> list:
     """Reduce un array 2D a como mucho target x target celdas (para mandar por JSON)."""
     rows, cols = arr.shape
     step_r = max(1, rows // target)
