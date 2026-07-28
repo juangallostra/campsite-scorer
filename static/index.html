@@ -45,8 +45,8 @@
   .map-legend .ticks { display:flex; justify-content:space-between; color:var(--muted); }
   .inspect-panel { background: var(--panel); color: var(--text); padding:12px 14px; border-radius:10px; box-shadow: 0 2px 8px rgba(0,0,0,.4); width:230px; max-height:400px; overflow-y:auto; }
   .inspect-empty { color: var(--muted); font-size:0.78rem; line-height:1.5; }
-  .score-explainer { background:var(--panel); border-radius:12px; padding:14px 16px; font-size:0.85rem; color:var(--muted); line-height:1.6; }
-  .score-explainer summary { cursor:pointer; color:var(--text); font-weight:600; font-size:0.9rem; }
+  .score-explainer { background:var(--panel); border-radius:12px; padding:14px 16px; font-size:0.85rem; color:var(--muted); line-height:1.6; margin-bottom:16px; }
+  .score-explainer summary { cursor:pointer; color:var(--text); font-weight:600; font-size:0.9rem; line-height:1.4; list-style-position:outside; }
   .score-explainer ul { margin: 10px 0 0; padding-left: 18px; }
   .score-explainer li { margin-bottom: 4px; }
   .search-item { padding:8px 10px; border-radius:8px; cursor:pointer; font-size:0.85rem; }
@@ -159,7 +159,7 @@
       <span id="loadingMap"></span>
     </div>
 
-    <details class="score-explainer" id="weightsPanel" style="margin-bottom:14px;">
+    <details class="score-explainer" id="weightsPanel">
       <summary>Ajustar la importancia de cada criterio</summary>
       <div style="margin-top:12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:12px;">
         <div>Pendiente (<span id="wSlopeVal">38</span>) <input type="range" id="wSlope" min="0" max="100" value="38" style="width:100%"></div>
