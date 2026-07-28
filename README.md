@@ -38,6 +38,33 @@ La resolución real depende del zoom elegido según el radio pedido
 (`_zoom_for_radius` en `dem_sources.py`): a más radio, menor resolución, para
 mantener manejable el número de teselas descargadas (límite `MAX_TILES=64`).
 
+## Más funcionalidades añadidas
+
+- **Buscador de topónimos**: campo de búsqueda que usa Nominatim (geocoding
+  gratuito de OpenStreetMap, sin API key) para saltar directamente a un lugar
+  por nombre. Nota: Nominatim tiene una política de uso pensada para volumen
+  bajo/moderado; para un uso intensivo en producción, considera montar tu
+  propio servicio de geocoding o usar un proveedor con SLA.
+- **Geolocalización**: botón "📍 Mi ubicación" que usa la API de
+  geolocalización del navegador para analizar automáticamente dónde estás.
+- **Pesos ajustables por el usuario**: panel desplegable con sliders para dar
+  más o menos importancia a cada criterio (pendiente, drenaje, posición,
+  orientación, rugosidad). Se normalizan solos en el backend
+  (`compute_campsite_score` en `terrain.py`), así que no hace falta que sumen
+  100. Nuevos query params en `/api/demo`, `/api/score` y
+  `/api/score_by_location`: `w_slope`, `w_drainage`, `w_position`,
+  `w_aspect`, `w_roughness`.
+- **Descarga del resultado**: botón para descargar el heatmap actual como PNG.
+- **Historial de puntos analizados**: lista de los últimos puntos que has
+  mirado en esta sesión (solo en memoria del navegador, se pierde al recargar
+  la página). Clicar una fila restaura ese resultado sin volver a llamar al
+  servidor.
+- **Caché de teselas en el backend** (`dem_sources.py`, `lru_cache` sobre
+  `_fetch_tile`): si dos análisis se solapan geográficamente (p. ej. clics
+  cercanos), las teselas ya descargadas se reutilizan en vez de pedirlas otra
+  vez. Limitada a 150 teselas en memoria (~40MB) para no comprometer el
+  presupuesto de memoria del free tier de Render.
+
 ## Optimizaciones de memoria (importante si despliegas en el free tier de Render)
 
 El servicio está pensado para no reventar la memoria disponible (Render free
