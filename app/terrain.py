@@ -168,6 +168,11 @@ def compute_campsite_score(
     y cada subindicador, listo para pintar como mapa de calor.
     """
     w = {**DEFAULT_WEIGHTS, **(weights or {})}
+    total_w = sum(w.values())
+    if total_w > 0:
+        w = {k: v / total_w for k, v in w.items()}  # normaliza para que sigan sumando 1 aunque el usuario pase pesos propios
+    else:
+        w = DEFAULT_WEIGHTS
 
     slope_deg, aspect_deg = compute_slope_aspect(dem, cellsize)
     curvature = compute_curvature(dem, cellsize)
@@ -190,6 +195,7 @@ def compute_campsite_score(
 
     # Penalizacion dura: pendiente >12 grados nunca puede salir "bueno"
     total = np.where(slope_deg > 12, np.minimum(total, 15), total)
+    total = np.clip(total, 0, 100)
 
     return {
         "score": total,

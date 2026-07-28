@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 import io
 from dataclasses import dataclass
+from functools import lru_cache
 
 import numpy as np
 import requests
@@ -78,6 +79,7 @@ def _zoom_for_radius(radius_km: float) -> int:
     return 10
 
 
+@lru_cache(maxsize=150)  # 150 teselas de 256x256 float32 ~= 40MB en el peor caso: razonable dado el limite de memoria de Render
 def _fetch_tile(x: int, y: int, z: int) -> np.ndarray:
     url = TILE_URL.format(z=z, x=x, y=y)
     try:

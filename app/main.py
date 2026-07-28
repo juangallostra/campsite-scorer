@@ -13,7 +13,7 @@ Endpoints:
 import io
 import base64
 import numpy as np
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -62,8 +62,11 @@ def _downsample_grid(arr: np.ndarray, target: int = 30) -> list:
     return np.round(small, 1).tolist()
 
 
-def _result_payload(dem: np.ndarray, cellsize: float, hemisphere: str = "N", bounds: dict | None = None) -> dict:
-    result = compute_campsite_score(dem, cellsize=cellsize, hemisphere=hemisphere)
+def _result_payload(
+    dem: np.ndarray, cellsize: float, hemisphere: str = "N", bounds: dict | None = None,
+    weights: dict | None = None,
+) -> dict:
+    result = compute_campsite_score(dem, cellsize=cellsize, hemisphere=hemisphere, weights=weights)
     score = result["score"]
 
     best_idx = np.unravel_index(np.argmax(score), score.shape)
@@ -115,10 +118,34 @@ def health():
     return {"status": "ok"}
 
 
+def _weight_params(
+    w_slope: float | None = Query(None, ge=0, le=100, description="Peso relativo de la pendiente"),
+    w_drainage: float | None = Query(None, ge=0, le=100, description="Peso relativo del drenaje"),
+    w_position: float | None = Query(None, ge=0, le=100, description="Peso relativo de la posición (viento/aire frío)"),
+    w_aspect: float | None = Query(None, ge=0, le=100, description="Peso relativo de la orientación"),
+    w_roughness: float | None = Query(None, ge=0, le=100, description="Peso relativo de la rugosidad"),
+) -> dict | None:
+    """
+    Construye el dict de pesos a partir de query params opcionales (0-100,
+    se normalizan internamente en terrain.py). Si no se pasa ninguno,
+    devuelve None y se usan los pesos por defecto.
+    """
+    raw = {
+        "slope": w_slope, "drainage": w_drainage, "position": w_position,
+        "aspect": w_aspect, "roughness": w_roughness,
+    }
+    provided = {k: v for k, v in raw.items() if v is not None}
+    return provided or None
+
+
 @app.get("/api/demo")
-def demo(size: int = Query(200, ge=50, le=400), cellsize: float = Query(5.0, gt=0)):
+def demo(
+    size: int = Query(200, ge=50, le=400),
+    cellsize: float = Query(5.0, gt=0),
+    weights: dict | None = Depends(_weight_params),
+):
     dem = generate_demo_dem(size=size, cellsize=cellsize)
-    return _result_payload(dem, cellsize=cellsize)
+    return _result_payload(dem, cellsize=cellsize, weights=weights)
 
 
 @app.get("/api/score_by_location")
@@ -127,6 +154,7 @@ def score_by_location(
     lon: float = Query(..., ge=-180, le=180),
     radius_km: float = Query(3.0, gt=0, le=20),
     hemisphere: str | None = Query(None, pattern="^[NS]$"),
+    weights: dict | None = Depends(_weight_params),
 ):
     """
     Descarga un DEM real (teselas de elevacion publicas) alrededor del punto
@@ -144,6 +172,7 @@ def score_by_location(
         cellsize=dem_result.cellsize_m,
         hemisphere=hemi,
         bounds=dem_result.bounds,
+        weights=weights,
     )
 
 
@@ -161,6 +190,7 @@ async def score_uploaded_dem(
         description="Lado maximo en pixeles al que se remuestrea el DEM antes de procesarlo. "
                      "Bajalo si el servidor se queda sin memoria con archivos grandes.",
     ),
+    weights: dict | None = Depends(_weight_params),
 ):
     """
     Acepta un GeoTIFF (DEM) y devuelve el mapa de idoneidad.
@@ -243,7 +273,7 @@ async def score_uploaded_dem(
         raise HTTPException(status_code=400, detail="El DEM subido esta vacio o no tiene datos validos.")
 
     try:
-        return _result_payload(dem, cellsize=cellsize, hemisphere=hemisphere)
+        return _result_payload(dem, cellsize=cellsize, hemisphere=hemisphere, weights=weights)
     except MemoryError:
         raise HTTPException(
             status_code=413,
