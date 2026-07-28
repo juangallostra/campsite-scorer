@@ -105,6 +105,42 @@
     </p>
   </details>
 
+  <details class="score-explainer">
+    <summary>¿Cómo se mide exactamente cada criterio?</summary>
+    <p style="margin:10px 0 0;">
+      <b>Drenaje (curvatura):</b> se compara la altura de cada punto con la de
+      sus 4 vecinos (arriba, abajo, izquierda, derecha). Si el punto está más
+      bajo que la media de sus vecinos, la superficie es <b>cóncava</b> —una
+      vaguada donde el agua converge—. Si está más alto, es <b>convexa</b>
+      —una loma, el agua se aleja—. La nota es máxima con una curvatura
+      ligeramente convexa y cae rápido en cuanto se vuelve cóncava.
+    </p>
+    <p style="margin:10px 0 0;">
+      <b>Rugosidad:</b> se calcula cuánto varía la altura dentro de una
+      ventana pequeña (5×5 píxeles) alrededor de cada punto. Cuanto más
+      varía ahí dentro, menos "liso" es el terreno. Con la resolución que
+      maneja la herramienta (20-150 m/píxel) esto capta variabilidad de
+      relieve a media escala, no piedras sueltas ni raíces.
+    </p>
+    <p style="margin:10px 0 0;">
+      <b>Posición (viento / aire frío):</b> se compara la altura de cada
+      punto con la altura media de su entorno (radio de 11 píxeles) — eso es
+      el TPI (Topographic Position Index). Un TPI muy alto es una cresta o
+      loma por encima de todo lo que la rodea: expuesta al viento. Un TPI muy
+      bajo es un fondo de valle: ahí se acumulan tanto el agua como el aire
+      frío nocturno, que es más denso y "cae" hacia los puntos bajos. La nota
+      máxima no está en los extremos, sino ligeramente por encima de la media
+      del entorno — la media ladera, resguardada pero no hundida.
+    </p>
+    <p style="margin:10px 0 0;">
+      <b>Orientación:</b> se premia ligeramente la ladera que mira al este
+      (en el hemisferio norte) frente a la que mira al norte, porque el sol
+      de la mañana ayuda a secar la condensación y calienta antes el
+      campamento. Es el criterio con menos peso de los cinco: su efecto real
+      es bastante más suave que el de la pendiente o el drenaje.
+    </p>
+  </details>
+
   <section>
     <h2>Mapa interactivo (DEM real por coordenadas)</h2>
     <div class="controls">
