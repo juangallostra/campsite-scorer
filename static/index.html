@@ -334,10 +334,58 @@ function nearestGridValue(grid, lat, lon, bounds) {
   return grid[row][col];
 }
 
-function showInspectPopup(lat, lon) {
+// ---------------------------------------------------------------------
+// Lectura EXACTA del score bajo el cursor a partir del color del pixel del
+// propio heatmap (en vez de la rejilla submuestreada, que agrupa areas de
+// cientos de metros en una sola celda y por eso el numero no cambiaba entre
+// clics cercanos aunque el color si). El heatmap se genera en el backend
+// con score_to_rgb() (terrain.py): esta funcion invierte esa formula.
+// ---------------------------------------------------------------------
+const overlayCanvas = document.createElement('canvas');
+const overlayCtx = overlayCanvas.getContext('2d', { willReadFrequently: true });
+let overlayImgLoaded = null;
+let overlayImgW = 0, overlayImgH = 0;
+
+function loadOverlayForPixelRead(dataUrl) {
+  overlayImgLoaded = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      overlayImgW = img.naturalWidth;
+      overlayImgH = img.naturalHeight;
+      overlayCanvas.width = overlayImgW;
+      overlayCanvas.height = overlayImgH;
+      overlayCtx.drawImage(img, 0, 0);
+      resolve();
+    };
+    img.onerror = () => resolve();
+    img.src = dataUrl;
+  });
+  return overlayImgLoaded;
+}
+
+async function getExactScoreFromImage(lat, lon) {
+  if (!overlayImgLoaded || !currentBounds || !overlayImgW) return null;
+  await overlayImgLoaded;
+  try {
+    const b = currentBounds;
+    const colFrac = (lon - b.west) / (b.east - b.west);
+    const rowFrac = (b.north - lat) / (b.north - b.south);
+    const px = Math.min(overlayImgW - 1, Math.max(0, Math.floor(colFrac * overlayImgW)));
+    const py = Math.min(overlayImgH - 1, Math.max(0, Math.floor(rowFrac * overlayImgH)));
+    const [r, g] = overlayCtx.getImageData(px, py, 1, 1).data;
+    // inversion de score_to_rgb: g<255 -> mitad roja->amarilla (s<0.5); si no, mitad amarilla->verde (s>=0.5)
+    const score = g < 255 ? (g / 5.1) : (100 - r / 5.1);
+    return Math.max(0, Math.min(100, score));
+  } catch (e) {
+    return null; // por si el navegador bloquea la lectura del canvas por algun motivo
+  }
+}
+
+async function showInspectPopup(lat, lon) {
   if (!currentInspectGrid || !currentBounds || !inspectPanelEl) return;
   const g = currentInspectGrid;
-  const score = nearestGridValue(g.score, lat, lon, currentBounds);
+  const exactScore = await getExactScoreFromImage(lat, lon);
+  const score = exactScore !== null ? exactScore : nearestGridValue(g.score, lat, lon, currentBounds);
   const slope = nearestGridValue(g.slope_deg, lat, lon, currentBounds);
   const sub = g.sub_scores;
   const totalLabel = scoreLabel(score);
@@ -366,9 +414,13 @@ function showInspectPopup(lat, lon) {
       </div>
       <div style="color:#8a97a3; margin-bottom:8px;">${lat.toFixed(5)}, ${lon.toFixed(5)}</div>
       ${rows}
-      ${currentResolutionM ? `<div style="color:#8a97a3; margin-top:8px; padding-top:8px; border-top:1px solid #2c3540;">Resolución de este análisis: ~${currentResolutionM.toFixed(0)} m/píxel</div>` : ''}
+      <div style="color:#8a97a3; margin-top:8px; padding-top:8px; border-top:1px solid #2c3540; font-size:0.72rem;">
+        ${exactScore !== null ? 'Score total leído del píxel exacto bajo el cursor.' : ''}
+        Criterios individuales: rejilla aproximada (${currentResolutionM ? '~' + currentResolutionM.toFixed(0) + ' m/píxel base' : 'resolución variable'}).
+      </div>
     </div>`;
 }
+
 
 // ---------------------------------------------------------------------
 // Mostrar / quitar la capa (overlay) del heatmap de analisis
@@ -444,6 +496,7 @@ function restoreFromHistory(h) {
 
   lastOverlayUrl = h.overlayUrl;
   lastOverlayBounds = h.overlayBounds;
+  loadOverlayForPixelRead(h.overlayUrl);
   currentOverlay = L.imageOverlay(h.overlayUrl, h.overlayBounds, { opacity: 0.65 }).addTo(map);
   currentOverlay.on('click', (e) => showInspectPopup(e.latlng.lat, e.latlng.lng));
   overlayVisible = true;
@@ -474,6 +527,7 @@ async function analyzeLocation(lat, lon) {
     const imgUrl = 'data:image/png;base64,' + data.score_heatmap_png_base64;
     lastOverlayUrl = imgUrl;
     lastOverlayBounds = leafletBounds;
+    loadOverlayForPixelRead(imgUrl);
 
     currentOverlay = L.imageOverlay(imgUrl, leafletBounds, { opacity: 0.65 }).addTo(map);
     currentOverlay.on('click', (e) => showInspectPopup(e.latlng.lat, e.latlng.lng));
