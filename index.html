@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Campsite Scorer — Evaluador de terrenos para acampar</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root { --good:#2ecc71; --bad:#e74c3c; --bg:#0f1419; --panel:#1a2129; --text:#e8edf2; --muted:#8a97a3; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+  header { padding: 20px 32px 8px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0; font-size: 0.9rem; }
+  main { padding: 16px 32px 48px; max-width: 1100px; margin: 0 auto; }
+  section { margin-bottom: 28px; }
+  section h2 { font-size: 1rem; color: var(--muted); font-weight:600; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .03em;}
+  .controls { display:flex; gap:12px; flex-wrap:wrap; align-items:center; background:var(--panel); padding:14px 16px; border-radius:12px; margin-bottom:14px; }
+  button { background:#3a7bd5; color:white; border:none; padding:9px 16px; border-radius:8px; font-size:0.9rem; cursor:pointer; }
+  button:hover { background:#5590e0; }
+  button.secondary { background:#2c3540; }
+  button.secondary:hover { background:#39434f; }
+  input[type=file] { color: var(--muted); }
+  input[type=range] { width: 140px; }
+  #map { height: 480px; border-radius: 12px; }
+  .map-hint { color: var(--muted); font-size: 0.82rem; margin: 8px 0 0; }
+  .images { display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top: 10px; }
+  .card { background:var(--panel); border-radius:12px; padding:14px; }
+  .card h3 { margin: 0 0 10px; font-size: 0.85rem; color: var(--muted); font-weight:600; }
+  img.result { width:100%; border-radius: 8px; image-rendering: pixelated; }
+  .stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap:12px; margin-top:14px; }
+  .stat { background:var(--panel); border-radius:12px; padding:14px; }
+  .stat .value { font-size:1.3rem; font-weight:700; }
+  .stat .label { color:var(--muted); font-size:0.78rem; margin-top:4px; }
+  .legend { display:flex; align-items:center; gap:10px; margin-top:10px; font-size:0.8rem; color:var(--muted); }
+  .legend .bar { flex:1; height:10px; border-radius:6px; background: linear-gradient(90deg, var(--bad), #f1c40f, var(--good)); }
+  #loading, #loadingMap { color: var(--muted); font-size:0.85rem; }
+  .leaflet-popup-content-wrapper { background: var(--panel); color: var(--text); }
+  .leaflet-popup-tip { background: var(--panel); }
+  .popup-grid { font-size: 0.8rem; line-height: 1.6; }
+  .popup-grid .row { display:flex; justify-content:space-between; gap:10px; }
+  .popup-grid .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+  .map-legend { background: var(--panel); color: var(--text); padding:10px 12px; border-radius:10px; font-size:0.75rem; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+  .map-legend .bar { width:140px; height:10px; border-radius:6px; background: linear-gradient(90deg, var(--bad), #f1c40f, var(--good)); margin: 4px 0; }
+  .map-legend .ticks { display:flex; justify-content:space-between; color:var(--muted); }
+  .inspect-panel { background: var(--panel); color: var(--text); padding:12px 14px; border-radius:10px; box-shadow: 0 2px 8px rgba(0,0,0,.4); width:230px; max-height:400px; overflow-y:auto; }
+  .inspect-empty { color: var(--muted); font-size:0.78rem; line-height:1.5; }
+  .score-explainer { background:var(--panel); border-radius:12px; padding:14px 16px; font-size:0.85rem; color:var(--muted); line-height:1.6; }
+  .score-explainer summary { cursor:pointer; color:var(--text); font-weight:600; font-size:0.9rem; }
+  .score-explainer ul { margin: 10px 0 0; padding-left: 18px; }
+  .score-explainer li { margin-bottom: 4px; }
+  .search-item { padding:8px 10px; border-radius:8px; cursor:pointer; font-size:0.85rem; }
+  .search-item:hover { background:#232c36; }
+  .history-row { display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--panel); border-radius:8px; padding:8px 12px; margin-bottom:6px; cursor:pointer; font-size:0.82rem; }
+  .history-row:hover { background:#232c36; }
+  .history-row .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:8px; }
+  footer { color: var(--muted); font-size:0.78rem; padding: 12px 32px 32px; max-width:1100px; margin:0 auto; line-height:1.5; }
+  hr.sep { border: none; border-top: 1px solid #232c36; margin: 28px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏕️ Campsite Scorer</h1>
+  <p class="sub">Heurística de idoneidad de terreno (pendiente, drenaje, exposición, orientación) aplicada sobre un modelo de elevación (DEM) real.</p>
+</header>
+<main>
+
+  <details class="score-explainer">
+    <summary>¿Qué significa la puntuación?</summary>
+    <p style="margin:10px 0 0;">
+      Cada punto del mapa recibe una nota de <b>0 a 100</b> según lo cómodo y seguro que sería
+      acampar ahí, combinando cinco factores del terreno:
+    </p>
+    <ul>
+      <li><b>Pendiente</b> (peso más alto): cuanto más plano, mejor. A partir de 8-12° se considera incómodo para dormir.</li>
+      <li><b>Drenaje</b>: evita zonas cóncavas (vaguadas) donde se acumula el agua de lluvia.</li>
+      <li><b>Posición</b>: penaliza tanto crestas expuestas al viento como fondos de valle donde se acumula aire frío por la noche.</li>
+      <li><b>Orientación</b>: premia ligeramente las laderas orientadas al este/sol de mañana.</li>
+      <li><b>Rugosidad</b>: variabilidad del relieve a pequeña escala (solo fiable con DEM de alta resolución).</li>
+    </ul>
+    <p style="margin:10px 0 0;">
+      Escala de interpretación: <span style="color:#e74c3c">0-20 muy malo</span> ·
+      <span style="color:#e67e22">20-40 malo</span> ·
+      <span style="color:#f1c40f">40-60 regular</span> ·
+      <span style="color:#a3d977">60-80 bueno</span> ·
+      <span style="color:#2ecc71">80-100 excelente</span>.
+    </p>
+    <p style="margin:10px 0 0;">
+      <b>¿De dónde salen los datos de relieve?</b> El mapa interactivo usa
+      teselas de elevación públicas y gratuitas ("Elevation Tiles", derivadas
+      de SRTM y otras fuentes globales), no una medición de campo ni un dron
+      propio. Su resolución real depende del radio de análisis que elijas:
+      a mayor radio, menos detalle por píxel (para no descargar áreas enormes).
+      Tras cada análisis, el panel de resultados muestra la resolución exacta
+      usada (los metros que representa cada píxel).
+    </p>
+    <p style="margin:10px 0 0;">
+      <b>Esto es una ayuda, no una garantía.</b> Con esa resolución (típicamente
+      20-150 metros por píxel) la herramienta capta bien la pendiente general,
+      el drenaje y la exposición de una ladera, pero <b>no ve piedras sueltas,
+      raíces, ramas muertas ni riesgo de crecida puntual</b> — nada que ocurra
+      a una escala menor que un píxel. Úsala para descartar zonas claramente
+      malas y preseleccionar candidatas, pero confirma siempre con inspección
+      visual sobre el terreno antes de montar el campamento.
+    </p>
+  </details>
+
+  <details class="score-explainer">
+    <summary>¿Cómo se mide exactamente cada criterio?</summary>
+    <p style="margin:10px 0 0;">
+      <b>Drenaje (curvatura):</b> se compara la altura de cada punto con la de
+      sus 4 vecinos (arriba, abajo, izquierda, derecha). Si el punto está más
+      bajo que la media de sus vecinos, la superficie es <b>cóncava</b> —una
+      vaguada donde el agua converge—. Si está más alto, es <b>convexa</b>
+      —una loma, el agua se aleja—. La nota es máxima con una curvatura
+      ligeramente convexa y cae rápido en cuanto se vuelve cóncava.
+    </p>
+    <p style="margin:10px 0 0;">
+      <b>Rugosidad:</b> se calcula cuánto varía la altura dentro de una
+      ventana pequeña (5×5 píxeles) alrededor de cada punto. Cuanto más
+      varía ahí dentro, menos "liso" es el terreno. Con la resolución que
+      maneja la herramienta (20-150 m/píxel) esto capta variabilidad de
+      relieve a media escala, no piedras sueltas ni raíces.
+    </p>
+    <p style="margin:10px 0 0;">
+      <b>Posición (viento / aire frío):</b> se compara la altura de cada
+      punto con la altura media de su entorno (radio de 11 píxeles) — eso es
+      el TPI (Topographic Position Index). Un TPI muy alto es una cresta o
+      loma por encima de todo lo que la rodea: expuesta al viento. Un TPI muy
+      bajo es un fondo de valle: ahí se acumulan tanto el agua como el aire
+      frío nocturno, que es más denso y "cae" hacia los puntos bajos. La nota
+      máxima no está en los extremos, sino ligeramente por encima de la media
+      del entorno — la media ladera, resguardada pero no hundida.
+    </p>
+    <p style="margin:10px 0 0;">
+      <b>Orientación:</b> se premia ligeramente la ladera que mira al este
+      (en el hemisferio norte) frente a la que mira al norte, porque el sol
+      de la mañana ayuda a secar la condensación y calienta antes el
+      campamento. Es el criterio con menos peso de los cinco: su efecto real
+      es bastante más suave que el de la pendiente o el drenaje.
+    </p>
+  </details>
+
+  <section>
+    <h2>Mapa interactivo (DEM real por coordenadas)</h2>
+    <div class="controls">
+      <input type="text" id="searchInput" placeholder="Buscar un lugar (ej. Aigüestortes)…" style="flex:1; min-width:180px; background:#0f1419; border:1px solid #2c3540; color:var(--text); padding:9px 12px; border-radius:8px;">
+      <button id="btnSearch" class="secondary">Buscar</button>
+      <button id="btnGeolocate" class="secondary">📍 Mi ubicación</button>
+    </div>
+    <div id="searchResults" style="display:none; background:var(--panel); border-radius:10px; padding:6px; margin-bottom:14px; max-height:160px; overflow-y:auto;"></div>
+
+    <div class="controls">
+      <span>Radio de análisis:</span>
+      <input type="range" id="radiusSlider" min="1" max="15" step="1" value="3">
+      <span id="radiusLabel">3 km</span>
+      <button id="btnToggleLayer" class="secondary" disabled>Quitar capa de análisis</button>
+      <button id="btnDownload" class="secondary" disabled>⬇️ Descargar PNG</button>
+      <span id="loadingMap"></span>
+    </div>
+
+    <details class="score-explainer" id="weightsPanel" style="margin-bottom:14px;">
+      <summary>Ajustar la importancia de cada criterio</summary>
+      <div style="margin-top:12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:12px;">
+        <div>Pendiente (<span id="wSlopeVal">38</span>) <input type="range" id="wSlope" min="0" max="100" value="38" style="width:100%"></div>
+        <div>Drenaje (<span id="wDrainageVal">22</span>) <input type="range" id="wDrainage" min="0" max="100" value="22" style="width:100%"></div>
+        <div>Posición/viento (<span id="wPositionVal">22</span>) <input type="range" id="wPosition" min="0" max="100" value="22" style="width:100%"></div>
+        <div>Orientación (<span id="wAspectVal">8</span>) <input type="range" id="wAspect" min="0" max="100" value="8" style="width:100%"></div>
+        <div>Rugosidad (<span id="wRoughnessVal">10</span>) <input type="range" id="wRoughness" min="0" max="100" value="10" style="width:100%"></div>
+      </div>
+      <p style="margin:10px 0 0; font-size:0.78rem;">
+        <b>¿Qué hace cada valor?</b> No son porcentajes absolutos, son
+        <b>pesos relativos</b>: el sistema los suma todos y calcula qué
+        proporción representa cada uno del total. Por eso, subir un slider
+        reduce automáticamente el peso relativo de los demás aunque no los
+        toques — lo que importa es la proporción entre ellos, no el número
+        en sí.
+      </p>
+      <p style="margin:8px 0 0; font-size:0.78rem;">
+        Por ejemplo, Pendiente=80 y Drenaje=20 da exactamente el mismo
+        resultado que Pendiente=40 y Drenaje=10 (en ambos casos, pendiente
+        pesa el cuádruple que drenaje). Poner un criterio a 0 lo elimina por
+        completo del cálculo. Y si subes uno solo muy por encima del resto,
+        el score empieza a depender casi únicamente de ese criterio — útil
+        si por ejemplo solo te importa la pendiente porque vas con una
+        furgoneta y el resto te da igual, pero ten en cuenta que pierdes la
+        vista de conjunto que dan los cinco factores combinados. Los cambios
+        se aplican en el próximo punto que analices, no reescriben análisis anteriores.
+      </p>
+    </details>
+
+    <div id="map"></div>
+    <p class="map-hint">Haz clic en cualquier punto del mapa para descargar el relieve real de esa zona y calcular su idoneidad. Vuelve a hacer clic sobre el resultado (área de color) para ver el desglose por criterio del punto exacto.</p>
+
+    <div id="historyWrap" style="display:none; margin-top:14px;">
+      <h3 style="font-size:0.85rem; color:var(--muted); font-weight:600; margin:0 0 8px;">Puntos analizados en esta sesión</h3>
+      <div id="historyTable"></div>
+    </div>
+  </section>
+
+  <hr class="sep">
+
+  <section>
+    <h2>Modo offline: terreno sintético / subir tu propio DEM</h2>
+    <div class="controls">
+      <button id="btnDemo" class="secondary">Probar con terreno de ejemplo</button>
+      <label class="secondary" style="background:#2c3540; padding:9px 16px; border-radius:8px; cursor:pointer; font-size:0.9rem;">
+        Subir DEM (GeoTIFF)
+        <input type="file" id="fileInput" accept=".tif,.tiff" style="display:none;">
+      </label>
+      <span id="loading"></span>
+    </div>
+
+    <div class="images" id="images" style="display:none;">
+      <div class="card">
+        <h3>RELIEVE (hillshade)</h3>
+        <img class="result" id="imgHillshade">
+      </div>
+      <div class="card">
+        <h3>IDONEIDAD PARA ACAMPAR</h3>
+        <img class="result" id="imgScore">
+        <div class="legend"><span>0 malo</span><div class="bar"></div><span>100 bueno</span></div>
+      </div>
+    </div>
+
+    <div class="stats" id="stats" style="display:none;"></div>
+  </section>
+
+</main>
+<footer>
+  Score = 0.38·pendiente + 0.22·drenaje (curvatura) + 0.22·posición relativa (TPI: evita crestas expuestas y fondos de valle fríos)
+  + 0.08·orientación + 0.10·rugosidad. El mapa interactivo usa elevación real (teselas públicas derivadas de SRTM/otros DEM globales,
+  resolución ~30-150m según el zoom). No sustituye la inspección visual del terreno: no detecta piedras sueltas, árboles muertos ni
+  riesgo de crecida puntual.
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ---------------------------------------------------------------------
+// Modo offline (demo sintética / subida de GeoTIFF) — igual que antes
+// ---------------------------------------------------------------------
+const btnDemo = document.getElementById('btnDemo');
+const fileInput = document.getElementById('fileInput');
+const loading = document.getElementById('loading');
+const imagesDiv = document.getElementById('images');
+const statsDiv = document.getElementById('stats');
+const imgHillshade = document.getElementById('imgHillshade');
+const imgScore = document.getElementById('imgScore');
+
+function renderOfflineResult(data) {
+  imgHillshade.src = 'data:image/png;base64,' + data.hillshade_png_base64;
+  imgScore.src = 'data:image/png;base64,' + data.score_heatmap_png_base64;
+  imagesDiv.style.display = 'grid';
+
+  const s = data.stats;
+  const meanLabel = scoreLabel(s.score_mean);
+  const bestLabel = scoreLabel(data.best_cell.score);
+  statsDiv.innerHTML = `
+    <div class="stat"><div class="value">${s.score_mean.toFixed(0)}</div><div class="label">Score medio — ${meanLabel.text}</div></div>
+    <div class="stat"><div class="value">${s.pct_area_good_ge_70.toFixed(0)}%</div><div class="label">Área con score ≥ 70</div></div>
+    <div class="stat"><div class="value">${s.pct_area_bad_lt_30.toFixed(0)}%</div><div class="label">Área con score &lt; 30</div></div>
+    <div class="stat"><div class="value">${data.best_cell.score.toFixed(0)}</div><div class="label">Mejor punto — ${bestLabel.text} (pendiente ${data.best_cell.slope_deg.toFixed(1)}°)</div></div>
+  `;
+  statsDiv.style.display = 'grid';
+}
+
+async function runDemo() {
+  loading.textContent = 'Calculando…';
+  try {
+    const res = await fetch('/api/demo');
+    if (!res.ok) throw new Error(await res.text());
+    renderOfflineResult(await res.json());
+  } catch (e) {
+    alert('Error calculando la demo: ' + e.message);
+  } finally {
+    loading.textContent = '';
+  }
+}
+
+async function uploadDem(file) {
+  loading.textContent = 'Procesando GeoTIFF…';
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/score', { method: 'POST', body: form });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    renderOfflineResult(await res.json());
+  } catch (e) {
+    alert('Error procesando el GeoTIFF: ' + e.message);
+  } finally {
+    loading.textContent = '';
+  }
+}
+
+btnDemo.addEventListener('click', runDemo);
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files[0]) uploadDem(e.target.files[0]);
+});
+
+// ---------------------------------------------------------------------
+// Modo mapa interactivo (DEM real por coordenadas)
+// ---------------------------------------------------------------------
+const map = L.map('map').setView([41.6, 0.6], 9); // Pirineo/Lleida por defecto
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 17,
+}).addTo(map);
+
+const legendControl = L.control({ position: 'bottomright' });
+legendControl.onAdd = function () {
+  const div = L.DomUtil.create('div', 'map-legend');
+  div.innerHTML = `
+    <div><b>Idoneidad</b></div>
+    <div class="bar"></div>
+    <div class="ticks"><span>0 malo</span><span>50</span><span>100 bueno</span></div>
+  `;
+  return div;
+};
+legendControl.addTo(map);
+
+// Panel de inspeccion fijo en la esquina superior derecha: no se mueve con
+// el mapa ni tapa la zona analizada (a diferencia de un popup anclado a las
+// coordenadas clicadas).
+const inspectControl = L.control({ position: 'topright' });
+let inspectPanelEl = null;
+inspectControl.onAdd = function () {
+  const div = L.DomUtil.create('div', 'inspect-panel');
+  div.innerHTML = '<div class="inspect-empty">Haz clic en el mapa (o sobre el resultado) para ver el detalle de un punto aquí.</div>';
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div);
+  inspectPanelEl = div;
+  return div;
+};
+inspectControl.addTo(map);
+
+function scoreLabel(score) {
+  if (score >= 80) return { text: 'Excelente', color: '#2ecc71' };
+  if (score >= 60) return { text: 'Bueno', color: '#a3d977' };
+  if (score >= 40) return { text: 'Regular', color: '#f1c40f' };
+  if (score >= 20) return { text: 'Malo', color: '#e67e22' };
+  return { text: 'Muy malo', color: '#e74c3c' };
+}
+
+// ---------------------------------------------------------------------
+// Sliders de pesos: ajustan la importancia relativa de cada criterio
+// ---------------------------------------------------------------------
+const weightSliders = {
+  slope: document.getElementById('wSlope'),
+  drainage: document.getElementById('wDrainage'),
+  position: document.getElementById('wPosition'),
+  aspect: document.getElementById('wAspect'),
+  roughness: document.getElementById('wRoughness'),
+};
+const weightLabels = {
+  slope: document.getElementById('wSlopeVal'),
+  drainage: document.getElementById('wDrainageVal'),
+  position: document.getElementById('wPositionVal'),
+  aspect: document.getElementById('wAspectVal'),
+  roughness: document.getElementById('wRoughnessVal'),
+};
+Object.keys(weightSliders).forEach((k) => {
+  weightSliders[k].addEventListener('input', () => { weightLabels[k].textContent = weightSliders[k].value; });
+});
+
+function weightQueryParams() {
+  return Object.entries(weightSliders)
+    .map(([k, el]) => `w_${k}=${el.value}`)
+    .join('&');
+}
+
+const radiusSlider = document.getElementById('radiusSlider');
+const radiusLabel = document.getElementById('radiusLabel');
+const loadingMap = document.getElementById('loadingMap');
+radiusSlider.addEventListener('input', () => { radiusLabel.textContent = radiusSlider.value + ' km'; });
+
+let currentOverlay = null;
+let currentMarker = null;
+let currentInspectGrid = null;
+let currentBounds = null;
+let currentResolutionM = null;
+
+function nearestGridValue(grid, lat, lon, bounds) {
+  const rows = grid.length, cols = grid[0].length;
+  const rowFrac = (bounds.north - lat) / (bounds.north - bounds.south);
+  const colFrac = (lon - bounds.west) / (bounds.east - bounds.west);
+  const row = Math.min(rows - 1, Math.max(0, Math.round(rowFrac * (rows - 1))));
+  const col = Math.min(cols - 1, Math.max(0, Math.round(colFrac * (cols - 1))));
+  return grid[row][col];
+}
+
+// ---------------------------------------------------------------------
+// Lectura EXACTA del score bajo el cursor a partir del color del pixel del
+// propio heatmap (en vez de la rejilla submuestreada, que agrupa areas de
+// cientos de metros en una sola celda y por eso el numero no cambiaba entre
+// clics cercanos aunque el color si). El heatmap se genera en el backend
+// con score_to_rgb() (terrain.py): esta funcion invierte esa formula.
+// ---------------------------------------------------------------------
+const overlayCanvas = document.createElement('canvas');
+const overlayCtx = overlayCanvas.getContext('2d', { willReadFrequently: true });
+let overlayImgLoaded = null;
+let overlayImgW = 0, overlayImgH = 0;
+
+function loadOverlayForPixelRead(dataUrl) {
+  overlayImgLoaded = new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      overlayImgW = img.naturalWidth;
+      overlayImgH = img.naturalHeight;
+      overlayCanvas.width = overlayImgW;
+      overlayCanvas.height = overlayImgH;
+      overlayCtx.drawImage(img, 0, 0);
+      resolve();
+    };
+    img.onerror = () => resolve();
+    img.src = dataUrl;
+  });
+  return overlayImgLoaded;
+}
+
+async function getExactScoreFromImage(lat, lon) {
+  if (!overlayImgLoaded || !currentBounds || !overlayImgW) return null;
+  await overlayImgLoaded;
+  try {
+    const b = currentBounds;
+    const colFrac = (lon - b.west) / (b.east - b.west);
+    const rowFrac = (b.north - lat) / (b.north - b.south);
+    const px = Math.min(overlayImgW - 1, Math.max(0, Math.floor(colFrac * overlayImgW)));
+    const py = Math.min(overlayImgH - 1, Math.max(0, Math.floor(rowFrac * overlayImgH)));
+    const [r, g] = overlayCtx.getImageData(px, py, 1, 1).data;
+    // inversion de score_to_rgb: g<255 -> mitad roja->amarilla (s<0.5); si no, mitad amarilla->verde (s>=0.5)
+    const score = g < 255 ? (g / 5.1) : (100 - r / 5.1);
+    return Math.max(0, Math.min(100, score));
+  } catch (e) {
+    return null; // por si el navegador bloquea la lectura del canvas por algun motivo
+  }
+}
+
+async function showInspectPopup(lat, lon) {
+  if (!currentInspectGrid || !currentBounds || !inspectPanelEl) return;
+  const g = currentInspectGrid;
+  const exactScore = await getExactScoreFromImage(lat, lon);
+  const score = exactScore !== null ? exactScore : nearestGridValue(g.score, lat, lon, currentBounds);
+  const slope = nearestGridValue(g.slope_deg, lat, lon, currentBounds);
+  const sub = g.sub_scores;
+  const totalLabel = scoreLabel(score);
+
+  const criteria = [
+    { name: 'Pendiente', value: nearestGridValue(sub.slope, lat, lon, currentBounds), extra: `${slope.toFixed(1)}°` },
+    { name: 'Drenaje', value: nearestGridValue(sub.drainage, lat, lon, currentBounds) },
+    { name: 'Posición (viento/aire frío)', value: nearestGridValue(sub.position, lat, lon, currentBounds) },
+    { name: 'Orientación', value: nearestGridValue(sub.aspect, lat, lon, currentBounds) },
+    { name: 'Rugosidad', value: nearestGridValue(sub.roughness, lat, lon, currentBounds) },
+  ];
+
+  const rows = criteria.map(c => {
+    const l = scoreLabel(c.value);
+    return `<div class="row">
+      <span><span class="dot" style="background:${l.color}"></span>${c.name}${c.extra ? ' (' + c.extra + ')' : ''}</span>
+      <span>${l.text} (${c.value.toFixed(0)})</span>
+    </div>`;
+  }).join('');
+
+  inspectPanelEl.innerHTML = `
+    <div class="popup-grid">
+      <div class="row" style="margin-bottom:4px;">
+        <b><span class="dot" style="background:${totalLabel.color}"></span>Score total</b>
+        <b>${totalLabel.text} (${score.toFixed(0)}/100)</b>
+      </div>
+      <div style="color:#8a97a3; margin-bottom:8px;">${lat.toFixed(5)}, ${lon.toFixed(5)}</div>
+      ${rows}
+      <div style="color:#8a97a3; margin-top:8px; padding-top:8px; border-top:1px solid #2c3540; font-size:0.72rem;">
+        ${exactScore !== null ? 'Score total leído del píxel exacto bajo el cursor.' : ''}
+        Criterios individuales: rejilla aproximada (${currentResolutionM ? '~' + currentResolutionM.toFixed(0) + ' m/píxel base' : 'resolución variable'}).
+      </div>
+    </div>`;
+}
+
+
+// ---------------------------------------------------------------------
+// Mostrar / quitar la capa (overlay) del heatmap de analisis
+// ---------------------------------------------------------------------
+const btnToggleLayer = document.getElementById('btnToggleLayer');
+const btnDownload = document.getElementById('btnDownload');
+let overlayVisible = true;
+let lastOverlayUrl = null;
+let lastOverlayBounds = null;
+
+function setOverlayVisible(visible) {
+  overlayVisible = visible;
+  if (visible) {
+    if (!currentOverlay && lastOverlayUrl && lastOverlayBounds) {
+      currentOverlay = L.imageOverlay(lastOverlayUrl, lastOverlayBounds, { opacity: 0.65 }).addTo(map);
+      currentOverlay.on('click', (e) => showInspectPopup(e.latlng.lat, e.latlng.lng));
+    }
+    btnToggleLayer.textContent = 'Quitar capa de análisis';
+  } else {
+    if (currentOverlay) { map.removeLayer(currentOverlay); currentOverlay = null; }
+    btnToggleLayer.textContent = 'Mostrar capa de análisis';
+  }
+}
+
+btnToggleLayer.addEventListener('click', () => setOverlayVisible(!overlayVisible));
+
+btnDownload.addEventListener('click', () => {
+  if (!lastOverlayUrl) return;
+  const a = document.createElement('a');
+  a.href = lastOverlayUrl;
+  a.download = `campsite-score_${map.getCenter().lat.toFixed(4)}_${map.getCenter().lng.toFixed(4)}.png`;
+  a.click();
+});
+
+// ---------------------------------------------------------------------
+// Historial de puntos analizados en esta sesion (en memoria del navegador,
+// no se guarda en el servidor). Clicar una fila restaura el resultado sin
+// tener que volver a descargar/calcular nada.
+// ---------------------------------------------------------------------
+const historyWrap = document.getElementById('historyWrap');
+const historyTable = document.getElementById('historyTable');
+const history = [];
+
+function addToHistory(entry) {
+  history.unshift(entry);
+  if (history.length > 8) history.pop();
+  renderHistory();
+}
+
+function renderHistory() {
+  if (history.length === 0) { historyWrap.style.display = 'none'; return; }
+  historyWrap.style.display = 'block';
+  historyTable.innerHTML = history.map((h, i) => {
+    const l = scoreLabel(h.score);
+    return `<div class="history-row" data-idx="${i}">
+      <span><span class="dot" style="background:${l.color}"></span>${h.lat.toFixed(4)}, ${h.lon.toFixed(4)}</span>
+      <span>${l.text} (${h.score.toFixed(0)})</span>
+    </div>`;
+  }).join('');
+  historyTable.querySelectorAll('.history-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      const h = history[parseInt(row.dataset.idx, 10)];
+      restoreFromHistory(h);
+    });
+  });
+}
+
+function restoreFromHistory(h) {
+  map.setView([h.lat, h.lon], map.getZoom());
+  if (currentMarker) map.removeLayer(currentMarker);
+  currentMarker = L.marker([h.lat, h.lon]).addTo(map);
+  if (currentOverlay) map.removeLayer(currentOverlay);
+
+  lastOverlayUrl = h.overlayUrl;
+  lastOverlayBounds = h.overlayBounds;
+  loadOverlayForPixelRead(h.overlayUrl);
+  currentOverlay = L.imageOverlay(h.overlayUrl, h.overlayBounds, { opacity: 0.65 }).addTo(map);
+  currentOverlay.on('click', (e) => showInspectPopup(e.latlng.lat, e.latlng.lng));
+  overlayVisible = true;
+  btnToggleLayer.disabled = false;
+  btnToggleLayer.textContent = 'Quitar capa de análisis';
+  btnDownload.disabled = false;
+
+  currentInspectGrid = h.inspectGrid;
+  currentBounds = h.bounds;
+  currentResolutionM = h.resolutionM;
+  showInspectPopup(h.lat, h.lon);
+}
+
+async function analyzeLocation(lat, lon) {
+  loadingMap.textContent = 'Descargando relieve real y calculando…';
+  if (currentMarker) map.removeLayer(currentMarker);
+  currentMarker = L.marker([lat, lon]).addTo(map);
+
+  try {
+    const radiusKm = radiusSlider.value;
+    const res = await fetch(`/api/score_by_location?lat=${lat}&lon=${lon}&radius_km=${radiusKm}&${weightQueryParams()}`);
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    const data = await res.json();
+
+    if (currentOverlay) map.removeLayer(currentOverlay);
+    const b = data.bounds;
+    const leafletBounds = [[b.south, b.west], [b.north, b.east]];
+    const imgUrl = 'data:image/png;base64,' + data.score_heatmap_png_base64;
+    lastOverlayUrl = imgUrl;
+    lastOverlayBounds = leafletBounds;
+    loadOverlayForPixelRead(imgUrl);
+
+    currentOverlay = L.imageOverlay(imgUrl, leafletBounds, { opacity: 0.65 }).addTo(map);
+    currentOverlay.on('click', (e) => showInspectPopup(e.latlng.lat, e.latlng.lng));
+    overlayVisible = true;
+    btnToggleLayer.disabled = false;
+    btnToggleLayer.textContent = 'Quitar capa de análisis';
+    btnDownload.disabled = false;
+
+    currentInspectGrid = data.inspect_grid;
+    currentBounds = b;
+    currentResolutionM = data.cellsize;
+
+    showInspectPopup(lat, lon);
+
+    addToHistory({
+      lat, lon,
+      score: nearestGridValue(data.inspect_grid.score, lat, lon, b),
+      overlayUrl: imgUrl, overlayBounds: leafletBounds,
+      inspectGrid: data.inspect_grid, bounds: b, resolutionM: data.cellsize,
+    });
+  } catch (e) {
+    alert('Error obteniendo el terreno real: ' + e.message);
+  } finally {
+    loadingMap.textContent = '';
+  }
+}
+
+map.on('click', (e) => analyzeLocation(e.latlng.lat, e.latlng.lng));
+
+// ---------------------------------------------------------------------
+// Buscador de topónimos (geocoding via Nominatim/OpenStreetMap, gratuito)
+// ---------------------------------------------------------------------
+const searchInput = document.getElementById('searchInput');
+const btnSearch = document.getElementById('btnSearch');
+const searchResults = document.getElementById('searchResults');
+
+async function runSearch() {
+  const q = searchInput.value.trim();
+  if (!q) return;
+  searchResults.style.display = 'block';
+  searchResults.innerHTML = '<div class="search-item">Buscando…</div>';
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=6&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url);
+    const results = await res.json();
+    if (!results.length) {
+      searchResults.innerHTML = '<div class="search-item">Sin resultados.</div>';
+      return;
+    }
+    searchResults.innerHTML = results.map((r, i) =>
+      `<div class="search-item" data-idx="${i}">${r.display_name}</div>`
+    ).join('');
+    searchResults.querySelectorAll('.search-item[data-idx]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const r = results[parseInt(el.dataset.idx, 10)];
+        const lat = parseFloat(r.lat), lon = parseFloat(r.lon);
+        map.setView([lat, lon], 12);
+        searchResults.style.display = 'none';
+        analyzeLocation(lat, lon);
+      });
+    });
+  } catch (e) {
+    searchResults.innerHTML = '<div class="search-item">Error buscando: ' + e.message + '</div>';
+  }
+}
+
+btnSearch.addEventListener('click', runSearch);
+searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+
+// ---------------------------------------------------------------------
+// Geolocalizacion del navegador
+// ---------------------------------------------------------------------
+const btnGeolocate = document.getElementById('btnGeolocate');
+btnGeolocate.addEventListener('click', () => {
+  if (!navigator.geolocation) {
+    alert('Tu navegador no soporta geolocalización.');
+    return;
+  }
+  loadingMap.textContent = 'Obteniendo tu ubicación…';
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const { latitude, longitude } = pos.coords;
+      map.setView([latitude, longitude], 13);
+      analyzeLocation(latitude, longitude);
+    },
+    (err) => {
+      loadingMap.textContent = '';
+      alert('No se pudo obtener tu ubicación: ' + err.message);
+    }
+  );
+});
+</script>
+</body>
+</html>
