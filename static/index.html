@@ -43,6 +43,8 @@
   .map-legend { background: var(--panel); color: var(--text); padding:10px 12px; border-radius:10px; font-size:0.75rem; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
   .map-legend .bar { width:140px; height:10px; border-radius:6px; background: linear-gradient(90deg, var(--bad), #f1c40f, var(--good)); margin: 4px 0; }
   .map-legend .ticks { display:flex; justify-content:space-between; color:var(--muted); }
+  .inspect-panel { background: var(--panel); color: var(--text); padding:12px 14px; border-radius:10px; box-shadow: 0 2px 8px rgba(0,0,0,.4); width:230px; max-height:400px; overflow-y:auto; }
+  .inspect-empty { color: var(--muted); font-size:0.78rem; line-height:1.5; }
   .score-explainer { background:var(--panel); border-radius:12px; padding:14px 16px; font-size:0.85rem; color:var(--muted); line-height:1.6; }
   .score-explainer summary { cursor:pointer; color:var(--text); font-weight:600; font-size:0.9rem; }
   .score-explainer ul { margin: 10px 0 0; padding-left: 18px; }
@@ -82,7 +84,24 @@
       <span style="color:#f1c40f">40-60 regular</span> ·
       <span style="color:#a3d977">60-80 bueno</span> ·
       <span style="color:#2ecc71">80-100 excelente</span>.
-      No sustituye la inspección visual: no detecta piedras sueltas, árboles muertos ni riesgo de crecida puntual.
+    </p>
+    <p style="margin:10px 0 0;">
+      <b>¿De dónde salen los datos de relieve?</b> El mapa interactivo usa
+      teselas de elevación públicas y gratuitas ("Elevation Tiles", derivadas
+      de SRTM y otras fuentes globales), no una medición de campo ni un dron
+      propio. Su resolución real depende del radio de análisis que elijas:
+      a mayor radio, menos detalle por píxel (para no descargar áreas enormes).
+      Tras cada análisis, el panel de resultados muestra la resolución exacta
+      usada (los metros que representa cada píxel).
+    </p>
+    <p style="margin:10px 0 0;">
+      <b>Esto es una ayuda, no una garantía.</b> Con esa resolución (típicamente
+      20-150 metros por píxel) la herramienta capta bien la pendiente general,
+      el drenaje y la exposición de una ladera, pero <b>no ve piedras sueltas,
+      raíces, ramas muertas ni riesgo de crecida puntual</b> — nada que ocurra
+      a una escala menor que un píxel. Úsala para descartar zonas claramente
+      malas y preseleccionar candidatas, pero confirma siempre con inspección
+      visual sobre el terreno antes de montar el campamento.
     </p>
   </details>
 
@@ -245,6 +264,21 @@ legendControl.onAdd = function () {
 };
 legendControl.addTo(map);
 
+// Panel de inspeccion fijo en la esquina superior derecha: no se mueve con
+// el mapa ni tapa la zona analizada (a diferencia de un popup anclado a las
+// coordenadas clicadas).
+const inspectControl = L.control({ position: 'topright' });
+let inspectPanelEl = null;
+inspectControl.onAdd = function () {
+  const div = L.DomUtil.create('div', 'inspect-panel');
+  div.innerHTML = '<div class="inspect-empty">Haz clic en el mapa (o sobre el resultado) para ver el detalle de un punto aquí.</div>';
+  L.DomEvent.disableClickPropagation(div);
+  L.DomEvent.disableScrollPropagation(div);
+  inspectPanelEl = div;
+  return div;
+};
+inspectControl.addTo(map);
+
 function scoreLabel(score) {
   if (score >= 80) return { text: 'Excelente', color: '#2ecc71' };
   if (score >= 60) return { text: 'Bueno', color: '#a3d977' };
@@ -289,6 +323,7 @@ let currentOverlay = null;
 let currentMarker = null;
 let currentInspectGrid = null;
 let currentBounds = null;
+let currentResolutionM = null;
 
 function nearestGridValue(grid, lat, lon, bounds) {
   const rows = grid.length, cols = grid[0].length;
@@ -300,7 +335,7 @@ function nearestGridValue(grid, lat, lon, bounds) {
 }
 
 function showInspectPopup(lat, lon) {
-  if (!currentInspectGrid || !currentBounds) return;
+  if (!currentInspectGrid || !currentBounds || !inspectPanelEl) return;
   const g = currentInspectGrid;
   const score = nearestGridValue(g.score, lat, lon, currentBounds);
   const slope = nearestGridValue(g.slope_deg, lat, lon, currentBounds);
@@ -323,7 +358,7 @@ function showInspectPopup(lat, lon) {
     </div>`;
   }).join('');
 
-  const html = `
+  inspectPanelEl.innerHTML = `
     <div class="popup-grid">
       <div class="row" style="margin-bottom:4px;">
         <b><span class="dot" style="background:${totalLabel.color}"></span>Score total</b>
@@ -331,8 +366,8 @@ function showInspectPopup(lat, lon) {
       </div>
       <div style="color:#8a97a3; margin-bottom:8px;">${lat.toFixed(5)}, ${lon.toFixed(5)}</div>
       ${rows}
+      ${currentResolutionM ? `<div style="color:#8a97a3; margin-top:8px; padding-top:8px; border-top:1px solid #2c3540;">Resolución de este análisis: ~${currentResolutionM.toFixed(0)} m/píxel</div>` : ''}
     </div>`;
-  L.popup().setLatLng([lat, lon]).setContent(html).openOn(map);
 }
 
 // ---------------------------------------------------------------------
@@ -418,6 +453,7 @@ function restoreFromHistory(h) {
 
   currentInspectGrid = h.inspectGrid;
   currentBounds = h.bounds;
+  currentResolutionM = h.resolutionM;
   showInspectPopup(h.lat, h.lon);
 }
 
@@ -448,6 +484,7 @@ async function analyzeLocation(lat, lon) {
 
     currentInspectGrid = data.inspect_grid;
     currentBounds = b;
+    currentResolutionM = data.cellsize;
 
     showInspectPopup(lat, lon);
 
@@ -455,7 +492,7 @@ async function analyzeLocation(lat, lon) {
       lat, lon,
       score: nearestGridValue(data.inspect_grid.score, lat, lon, b),
       overlayUrl: imgUrl, overlayBounds: leafletBounds,
-      inspectGrid: data.inspect_grid, bounds: b,
+      inspectGrid: data.inspect_grid, bounds: b, resolutionM: data.cellsize,
     });
   } catch (e) {
     alert('Error obteniendo el terreno real: ' + e.message);
