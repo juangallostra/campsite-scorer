@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Campsite Scorer — Evaluador de terrenos para acampar</title>
+<style>
+  :root { --good:#2ecc71; --bad:#e74c3c; --bg:#0f1419; --panel:#1a2129; --text:#e8edf2; --muted:#8a97a3; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+  header { padding: 24px 32px 8px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  p.sub { color: var(--muted); margin: 0; font-size: 0.9rem; }
+  main { padding: 16px 32px 48px; max-width: 1000px; margin: 0 auto; }
+  .controls { display:flex; gap:12px; flex-wrap:wrap; align-items:center; background:var(--panel); padding:16px; border-radius:12px; margin-bottom:20px; }
+  button { background:#3a7bd5; color:white; border:none; padding:10px 18px; border-radius:8px; font-size:0.95rem; cursor:pointer; }
+  button:hover { background:#5590e0; }
+  button.secondary { background:#2c3540; }
+  button.secondary:hover { background:#39434f; }
+  input[type=file] { color: var(--muted); }
+  .images { display:grid; grid-template-columns: 1fr 1fr; gap:16px; margin-top: 10px; }
+  .card { background:var(--panel); border-radius:12px; padding:14px; }
+  .card h3 { margin: 0 0 10px; font-size: 0.9rem; color: var(--muted); font-weight:600; }
+  img.result { width:100%; border-radius: 8px; image-rendering: pixelated; }
+  .stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:12px; margin-top:16px; }
+  .stat { background:var(--panel); border-radius:12px; padding:14px; }
+  .stat .value { font-size:1.4rem; font-weight:700; }
+  .stat .label { color:var(--muted); font-size:0.8rem; margin-top:4px; }
+  .legend { display:flex; align-items:center; gap:10px; margin-top:10px; font-size:0.8rem; color:var(--muted); }
+  .legend .bar { flex:1; height:10px; border-radius:6px; background: linear-gradient(90deg, var(--bad), #f1c40f, var(--good)); }
+  #loading { color: var(--muted); font-size:0.9rem; display:none; }
+  footer { color: var(--muted); font-size:0.78rem; padding: 12px 32px 32px; max-width:1000px; margin:0 auto; line-height:1.5; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏕️ Campsite Scorer</h1>
+  <p class="sub">Heurística de idoneidad de terreno (pendiente, drenaje, exposición, orientación) aplicada sobre un modelo de elevación (DEM).</p>
+</header>
+<main>
+  <div class="controls">
+    <button id="btnDemo">Probar con terreno de ejemplo</button>
+    <label class="secondary" style="background:#2c3540; padding:10px 18px; border-radius:8px; cursor:pointer;">
+      Subir DEM (GeoTIFF)
+      <input type="file" id="fileInput" accept=".tif,.tiff" style="display:none;">
+    </label>
+    <span id="loading">Calculando…</span>
+  </div>
+
+  <div class="images" id="images" style="display:none;">
+    <div class="card">
+      <h3>RELIEVE (hillshade)</h3>
+      <img class="result" id="imgHillshade">
+    </div>
+    <div class="card">
+      <h3>IDONEIDAD PARA ACAMPAR</h3>
+      <img class="result" id="imgScore">
+      <div class="legend"><span>malo</span><div class="bar"></div><span>bueno</span></div>
+    </div>
+  </div>
+
+  <div class="stats" id="stats" style="display:none;"></div>
+</main>
+<footer>
+  Score = 0.38·pendiente + 0.22·drenaje (curvatura) + 0.22·posición relativa (TPI: evita crestas expuestas y fondos de valle fríos)
+  + 0.08·orientación + 0.10·rugosidad. Calculado a partir de un DEM (30m Copernicus/SRTM o mejor resolución si subes tu propio GeoTIFF).
+  No sustituye la inspección visual del terreno: no detecta piedras sueltas, árboles muertos ni riesgo de crecida puntual.
+</footer>
+
+<script>
+const btnDemo = document.getElementById('btnDemo');
+const fileInput = document.getElementById('fileInput');
+const loading = document.getElementById('loading');
+const imagesDiv = document.getElementById('images');
+const statsDiv = document.getElementById('stats');
+const imgHillshade = document.getElementById('imgHillshade');
+const imgScore = document.getElementById('imgScore');
+
+function renderResult(data) {
+  imgHillshade.src = 'data:image/png;base64,' + data.hillshade_png_base64;
+  imgScore.src = 'data:image/png;base64,' + data.score_heatmap_png_base64;
+  imagesDiv.style.display = 'grid';
+
+  const s = data.stats;
+  statsDiv.innerHTML = `
+    <div class="stat"><div class="value">${s.score_mean.toFixed(0)}</div><div class="label">Score medio (0-100)</div></div>
+    <div class="stat"><div class="value">${s.pct_area_good_ge_70.toFixed(0)}%</div><div class="label">Área con score ≥ 70</div></div>
+    <div class="stat"><div class="value">${s.pct_area_bad_lt_30.toFixed(0)}%</div><div class="label">Área con score &lt; 30</div></div>
+    <div class="stat"><div class="value">${data.best_cell.score.toFixed(0)}</div><div class="label">Mejor punto (pendiente ${data.best_cell.slope_deg.toFixed(1)}°)</div></div>
+  `;
+  statsDiv.style.display = 'grid';
+}
+
+async function runDemo() {
+  loading.style.display = 'inline';
+  try {
+    const res = await fetch('/api/demo');
+    if (!res.ok) throw new Error(await res.text());
+    renderResult(await res.json());
+  } catch (e) {
+    alert('Error calculando la demo: ' + e.message);
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+async function uploadDem(file) {
+  loading.style.display = 'inline';
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/score', { method: 'POST', body: form });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    renderResult(await res.json());
+  } catch (e) {
+    alert('Error procesando el GeoTIFF: ' + e.message);
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+btnDemo.addEventListener('click', runDemo);
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files[0]) uploadDem(e.target.files[0]);
+});
+</script>
+</body>
+</html>
