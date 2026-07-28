@@ -37,7 +37,21 @@
   #loading, #loadingMap { color: var(--muted); font-size:0.85rem; }
   .leaflet-popup-content-wrapper { background: var(--panel); color: var(--text); }
   .leaflet-popup-tip { background: var(--panel); }
-  .popup-grid { font-size: 0.78rem; line-height: 1.5; }
+  .popup-grid { font-size: 0.8rem; line-height: 1.6; }
+  .popup-grid .row { display:flex; justify-content:space-between; gap:10px; }
+  .popup-grid .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; }
+  .map-legend { background: var(--panel); color: var(--text); padding:10px 12px; border-radius:10px; font-size:0.75rem; box-shadow: 0 2px 8px rgba(0,0,0,.4); }
+  .map-legend .bar { width:140px; height:10px; border-radius:6px; background: linear-gradient(90deg, var(--bad), #f1c40f, var(--good)); margin: 4px 0; }
+  .map-legend .ticks { display:flex; justify-content:space-between; color:var(--muted); }
+  .score-explainer { background:var(--panel); border-radius:12px; padding:14px 16px; font-size:0.85rem; color:var(--muted); line-height:1.6; }
+  .score-explainer summary { cursor:pointer; color:var(--text); font-weight:600; font-size:0.9rem; }
+  .score-explainer ul { margin: 10px 0 0; padding-left: 18px; }
+  .score-explainer li { margin-bottom: 4px; }
+  .search-item { padding:8px 10px; border-radius:8px; cursor:pointer; font-size:0.85rem; }
+  .search-item:hover { background:#232c36; }
+  .history-row { display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--panel); border-radius:8px; padding:8px 12px; margin-bottom:6px; cursor:pointer; font-size:0.82rem; }
+  .history-row:hover { background:#232c36; }
+  .history-row .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:8px; }
   footer { color: var(--muted); font-size:0.78rem; padding: 12px 32px 32px; max-width:1100px; margin:0 auto; line-height:1.5; }
   hr.sep { border: none; border-top: 1px solid #232c36; margin: 28px 0; }
 </style>
@@ -49,16 +63,66 @@
 </header>
 <main>
 
+  <details class="score-explainer">
+    <summary>¿Qué significa la puntuación?</summary>
+    <p style="margin:10px 0 0;">
+      Cada punto del mapa recibe una nota de <b>0 a 100</b> según lo cómodo y seguro que sería
+      acampar ahí, combinando cinco factores del terreno:
+    </p>
+    <ul>
+      <li><b>Pendiente</b> (peso más alto): cuanto más plano, mejor. A partir de 8-12° se considera incómodo para dormir.</li>
+      <li><b>Drenaje</b>: evita zonas cóncavas (vaguadas) donde se acumula el agua de lluvia.</li>
+      <li><b>Posición</b>: penaliza tanto crestas expuestas al viento como fondos de valle donde se acumula aire frío por la noche.</li>
+      <li><b>Orientación</b>: premia ligeramente las laderas orientadas al este/sol de mañana.</li>
+      <li><b>Rugosidad</b>: variabilidad del relieve a pequeña escala (solo fiable con DEM de alta resolución).</li>
+    </ul>
+    <p style="margin:10px 0 0;">
+      Escala de interpretación: <span style="color:#e74c3c">0-20 muy malo</span> ·
+      <span style="color:#e67e22">20-40 malo</span> ·
+      <span style="color:#f1c40f">40-60 regular</span> ·
+      <span style="color:#a3d977">60-80 bueno</span> ·
+      <span style="color:#2ecc71">80-100 excelente</span>.
+      No sustituye la inspección visual: no detecta piedras sueltas, árboles muertos ni riesgo de crecida puntual.
+    </p>
+  </details>
+
   <section>
     <h2>Mapa interactivo (DEM real por coordenadas)</h2>
+    <div class="controls">
+      <input type="text" id="searchInput" placeholder="Buscar un lugar (ej. Aigüestortes)…" style="flex:1; min-width:180px; background:#0f1419; border:1px solid #2c3540; color:var(--text); padding:9px 12px; border-radius:8px;">
+      <button id="btnSearch" class="secondary">Buscar</button>
+      <button id="btnGeolocate" class="secondary">📍 Mi ubicación</button>
+    </div>
+    <div id="searchResults" style="display:none; background:var(--panel); border-radius:10px; padding:6px; margin-bottom:14px; max-height:160px; overflow-y:auto;"></div>
+
     <div class="controls">
       <span>Radio de análisis:</span>
       <input type="range" id="radiusSlider" min="1" max="15" step="1" value="3">
       <span id="radiusLabel">3 km</span>
+      <button id="btnToggleLayer" class="secondary" disabled>Quitar capa de análisis</button>
+      <button id="btnDownload" class="secondary" disabled>⬇️ Descargar PNG</button>
       <span id="loadingMap"></span>
     </div>
+
+    <details class="score-explainer" id="weightsPanel" style="margin-bottom:14px;">
+      <summary>Ajustar la importancia de cada criterio</summary>
+      <div style="margin-top:12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:12px;">
+        <div>Pendiente (<span id="wSlopeVal">38</span>) <input type="range" id="wSlope" min="0" max="100" value="38" style="width:100%"></div>
+        <div>Drenaje (<span id="wDrainageVal">22</span>) <input type="range" id="wDrainage" min="0" max="100" value="22" style="width:100%"></div>
+        <div>Posición/viento (<span id="wPositionVal">22</span>) <input type="range" id="wPosition" min="0" max="100" value="22" style="width:100%"></div>
+        <div>Orientación (<span id="wAspectVal">8</span>) <input type="range" id="wAspect" min="0" max="100" value="8" style="width:100%"></div>
+        <div>Rugosidad (<span id="wRoughnessVal">10</span>) <input type="range" id="wRoughness" min="0" max="100" value="10" style="width:100%"></div>
+      </div>
+      <p style="margin:10px 0 0; font-size:0.78rem;">Los valores son relativos entre sí (se normalizan solos). Se aplican en el próximo punto que analices.</p>
+    </details>
+
     <div id="map"></div>
     <p class="map-hint">Haz clic en cualquier punto del mapa para descargar el relieve real de esa zona y calcular su idoneidad. Vuelve a hacer clic sobre el resultado (área de color) para ver el desglose por criterio del punto exacto.</p>
+
+    <div id="historyWrap" style="display:none; margin-top:14px;">
+      <h3 style="font-size:0.85rem; color:var(--muted); font-weight:600; margin:0 0 8px;">Puntos analizados en esta sesión</h3>
+      <div id="historyTable"></div>
+    </div>
   </section>
 
   <hr class="sep">
@@ -82,7 +146,7 @@
       <div class="card">
         <h3>IDONEIDAD PARA ACAMPAR</h3>
         <img class="result" id="imgScore">
-        <div class="legend"><span>malo</span><div class="bar"></div><span>bueno</span></div>
+        <div class="legend"><span>0 malo</span><div class="bar"></div><span>100 bueno</span></div>
       </div>
     </div>
 
@@ -116,11 +180,13 @@ function renderOfflineResult(data) {
   imagesDiv.style.display = 'grid';
 
   const s = data.stats;
+  const meanLabel = scoreLabel(s.score_mean);
+  const bestLabel = scoreLabel(data.best_cell.score);
   statsDiv.innerHTML = `
-    <div class="stat"><div class="value">${s.score_mean.toFixed(0)}</div><div class="label">Score medio (0-100)</div></div>
+    <div class="stat"><div class="value">${s.score_mean.toFixed(0)}</div><div class="label">Score medio — ${meanLabel.text}</div></div>
     <div class="stat"><div class="value">${s.pct_area_good_ge_70.toFixed(0)}%</div><div class="label">Área con score ≥ 70</div></div>
     <div class="stat"><div class="value">${s.pct_area_bad_lt_30.toFixed(0)}%</div><div class="label">Área con score &lt; 30</div></div>
-    <div class="stat"><div class="value">${data.best_cell.score.toFixed(0)}</div><div class="label">Mejor punto (pendiente ${data.best_cell.slope_deg.toFixed(1)}°)</div></div>
+    <div class="stat"><div class="value">${data.best_cell.score.toFixed(0)}</div><div class="label">Mejor punto — ${bestLabel.text} (pendiente ${data.best_cell.slope_deg.toFixed(1)}°)</div></div>
   `;
   statsDiv.style.display = 'grid';
 }
@@ -167,6 +233,53 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 17,
 }).addTo(map);
 
+const legendControl = L.control({ position: 'bottomright' });
+legendControl.onAdd = function () {
+  const div = L.DomUtil.create('div', 'map-legend');
+  div.innerHTML = `
+    <div><b>Idoneidad</b></div>
+    <div class="bar"></div>
+    <div class="ticks"><span>0 malo</span><span>50</span><span>100 bueno</span></div>
+  `;
+  return div;
+};
+legendControl.addTo(map);
+
+function scoreLabel(score) {
+  if (score >= 80) return { text: 'Excelente', color: '#2ecc71' };
+  if (score >= 60) return { text: 'Bueno', color: '#a3d977' };
+  if (score >= 40) return { text: 'Regular', color: '#f1c40f' };
+  if (score >= 20) return { text: 'Malo', color: '#e67e22' };
+  return { text: 'Muy malo', color: '#e74c3c' };
+}
+
+// ---------------------------------------------------------------------
+// Sliders de pesos: ajustan la importancia relativa de cada criterio
+// ---------------------------------------------------------------------
+const weightSliders = {
+  slope: document.getElementById('wSlope'),
+  drainage: document.getElementById('wDrainage'),
+  position: document.getElementById('wPosition'),
+  aspect: document.getElementById('wAspect'),
+  roughness: document.getElementById('wRoughness'),
+};
+const weightLabels = {
+  slope: document.getElementById('wSlopeVal'),
+  drainage: document.getElementById('wDrainageVal'),
+  position: document.getElementById('wPositionVal'),
+  aspect: document.getElementById('wAspectVal'),
+  roughness: document.getElementById('wRoughnessVal'),
+};
+Object.keys(weightSliders).forEach((k) => {
+  weightSliders[k].addEventListener('input', () => { weightLabels[k].textContent = weightSliders[k].value; });
+});
+
+function weightQueryParams() {
+  return Object.entries(weightSliders)
+    .map(([k, el]) => `w_${k}=${el.value}`)
+    .join('&');
+}
+
 const radiusSlider = document.getElementById('radiusSlider');
 const radiusLabel = document.getElementById('radiusLabel');
 const loadingMap = document.getElementById('loadingMap');
@@ -192,16 +305,120 @@ function showInspectPopup(lat, lon) {
   const score = nearestGridValue(g.score, lat, lon, currentBounds);
   const slope = nearestGridValue(g.slope_deg, lat, lon, currentBounds);
   const sub = g.sub_scores;
+  const totalLabel = scoreLabel(score);
+
+  const criteria = [
+    { name: 'Pendiente', value: nearestGridValue(sub.slope, lat, lon, currentBounds), extra: `${slope.toFixed(1)}°` },
+    { name: 'Drenaje', value: nearestGridValue(sub.drainage, lat, lon, currentBounds) },
+    { name: 'Posición (viento/aire frío)', value: nearestGridValue(sub.position, lat, lon, currentBounds) },
+    { name: 'Orientación', value: nearestGridValue(sub.aspect, lat, lon, currentBounds) },
+    { name: 'Rugosidad', value: nearestGridValue(sub.roughness, lat, lon, currentBounds) },
+  ];
+
+  const rows = criteria.map(c => {
+    const l = scoreLabel(c.value);
+    return `<div class="row">
+      <span><span class="dot" style="background:${l.color}"></span>${c.name}${c.extra ? ' (' + c.extra + ')' : ''}</span>
+      <span>${l.text} (${c.value.toFixed(0)})</span>
+    </div>`;
+  }).join('');
+
   const html = `
     <div class="popup-grid">
-      <b>Score total: ${score.toFixed(0)}/100</b><br>
-      Pendiente: ${slope.toFixed(1)}° (nota ${nearestGridValue(sub.slope, lat, lon, currentBounds).toFixed(0)})<br>
-      Drenaje: ${nearestGridValue(sub.drainage, lat, lon, currentBounds).toFixed(0)}<br>
-      Posición (viento/aire frío): ${nearestGridValue(sub.position, lat, lon, currentBounds).toFixed(0)}<br>
-      Orientación: ${nearestGridValue(sub.aspect, lat, lon, currentBounds).toFixed(0)}<br>
-      Rugosidad: ${nearestGridValue(sub.roughness, lat, lon, currentBounds).toFixed(0)}
+      <div class="row" style="margin-bottom:4px;">
+        <b><span class="dot" style="background:${totalLabel.color}"></span>Score total</b>
+        <b>${totalLabel.text} (${score.toFixed(0)}/100)</b>
+      </div>
+      <div style="color:#8a97a3; margin-bottom:8px;">${lat.toFixed(5)}, ${lon.toFixed(5)}</div>
+      ${rows}
     </div>`;
   L.popup().setLatLng([lat, lon]).setContent(html).openOn(map);
+}
+
+// ---------------------------------------------------------------------
+// Mostrar / quitar la capa (overlay) del heatmap de analisis
+// ---------------------------------------------------------------------
+const btnToggleLayer = document.getElementById('btnToggleLayer');
+const btnDownload = document.getElementById('btnDownload');
+let overlayVisible = true;
+let lastOverlayUrl = null;
+let lastOverlayBounds = null;
+
+function setOverlayVisible(visible) {
+  overlayVisible = visible;
+  if (visible) {
+    if (!currentOverlay && lastOverlayUrl && lastOverlayBounds) {
+      currentOverlay = L.imageOverlay(lastOverlayUrl, lastOverlayBounds, { opacity: 0.65 }).addTo(map);
+      currentOverlay.on('click', (e) => showInspectPopup(e.latlng.lat, e.latlng.lng));
+    }
+    btnToggleLayer.textContent = 'Quitar capa de análisis';
+  } else {
+    if (currentOverlay) { map.removeLayer(currentOverlay); currentOverlay = null; }
+    btnToggleLayer.textContent = 'Mostrar capa de análisis';
+  }
+}
+
+btnToggleLayer.addEventListener('click', () => setOverlayVisible(!overlayVisible));
+
+btnDownload.addEventListener('click', () => {
+  if (!lastOverlayUrl) return;
+  const a = document.createElement('a');
+  a.href = lastOverlayUrl;
+  a.download = `campsite-score_${map.getCenter().lat.toFixed(4)}_${map.getCenter().lng.toFixed(4)}.png`;
+  a.click();
+});
+
+// ---------------------------------------------------------------------
+// Historial de puntos analizados en esta sesion (en memoria del navegador,
+// no se guarda en el servidor). Clicar una fila restaura el resultado sin
+// tener que volver a descargar/calcular nada.
+// ---------------------------------------------------------------------
+const historyWrap = document.getElementById('historyWrap');
+const historyTable = document.getElementById('historyTable');
+const history = [];
+
+function addToHistory(entry) {
+  history.unshift(entry);
+  if (history.length > 8) history.pop();
+  renderHistory();
+}
+
+function renderHistory() {
+  if (history.length === 0) { historyWrap.style.display = 'none'; return; }
+  historyWrap.style.display = 'block';
+  historyTable.innerHTML = history.map((h, i) => {
+    const l = scoreLabel(h.score);
+    return `<div class="history-row" data-idx="${i}">
+      <span><span class="dot" style="background:${l.color}"></span>${h.lat.toFixed(4)}, ${h.lon.toFixed(4)}</span>
+      <span>${l.text} (${h.score.toFixed(0)})</span>
+    </div>`;
+  }).join('');
+  historyTable.querySelectorAll('.history-row').forEach((row) => {
+    row.addEventListener('click', () => {
+      const h = history[parseInt(row.dataset.idx, 10)];
+      restoreFromHistory(h);
+    });
+  });
+}
+
+function restoreFromHistory(h) {
+  map.setView([h.lat, h.lon], map.getZoom());
+  if (currentMarker) map.removeLayer(currentMarker);
+  currentMarker = L.marker([h.lat, h.lon]).addTo(map);
+  if (currentOverlay) map.removeLayer(currentOverlay);
+
+  lastOverlayUrl = h.overlayUrl;
+  lastOverlayBounds = h.overlayBounds;
+  currentOverlay = L.imageOverlay(h.overlayUrl, h.overlayBounds, { opacity: 0.65 }).addTo(map);
+  currentOverlay.on('click', (e) => showInspectPopup(e.latlng.lat, e.latlng.lng));
+  overlayVisible = true;
+  btnToggleLayer.disabled = false;
+  btnToggleLayer.textContent = 'Quitar capa de análisis';
+  btnDownload.disabled = false;
+
+  currentInspectGrid = h.inspectGrid;
+  currentBounds = h.bounds;
+  showInspectPopup(h.lat, h.lon);
 }
 
 async function analyzeLocation(lat, lon) {
@@ -211,7 +428,7 @@ async function analyzeLocation(lat, lon) {
 
   try {
     const radiusKm = radiusSlider.value;
-    const res = await fetch(`/api/score_by_location?lat=${lat}&lon=${lon}&radius_km=${radiusKm}`);
+    const res = await fetch(`/api/score_by_location?lat=${lat}&lon=${lon}&radius_km=${radiusKm}&${weightQueryParams()}`);
     if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
     const data = await res.json();
 
@@ -219,13 +436,27 @@ async function analyzeLocation(lat, lon) {
     const b = data.bounds;
     const leafletBounds = [[b.south, b.west], [b.north, b.east]];
     const imgUrl = 'data:image/png;base64,' + data.score_heatmap_png_base64;
+    lastOverlayUrl = imgUrl;
+    lastOverlayBounds = leafletBounds;
+
     currentOverlay = L.imageOverlay(imgUrl, leafletBounds, { opacity: 0.65 }).addTo(map);
     currentOverlay.on('click', (e) => showInspectPopup(e.latlng.lat, e.latlng.lng));
+    overlayVisible = true;
+    btnToggleLayer.disabled = false;
+    btnToggleLayer.textContent = 'Quitar capa de análisis';
+    btnDownload.disabled = false;
 
     currentInspectGrid = data.inspect_grid;
     currentBounds = b;
 
     showInspectPopup(lat, lon);
+
+    addToHistory({
+      lat, lon,
+      score: nearestGridValue(data.inspect_grid.score, lat, lon, b),
+      overlayUrl: imgUrl, overlayBounds: leafletBounds,
+      inspectGrid: data.inspect_grid, bounds: b,
+    });
   } catch (e) {
     alert('Error obteniendo el terreno real: ' + e.message);
   } finally {
@@ -234,6 +465,69 @@ async function analyzeLocation(lat, lon) {
 }
 
 map.on('click', (e) => analyzeLocation(e.latlng.lat, e.latlng.lng));
+
+// ---------------------------------------------------------------------
+// Buscador de topónimos (geocoding via Nominatim/OpenStreetMap, gratuito)
+// ---------------------------------------------------------------------
+const searchInput = document.getElementById('searchInput');
+const btnSearch = document.getElementById('btnSearch');
+const searchResults = document.getElementById('searchResults');
+
+async function runSearch() {
+  const q = searchInput.value.trim();
+  if (!q) return;
+  searchResults.style.display = 'block';
+  searchResults.innerHTML = '<div class="search-item">Buscando…</div>';
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=6&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url);
+    const results = await res.json();
+    if (!results.length) {
+      searchResults.innerHTML = '<div class="search-item">Sin resultados.</div>';
+      return;
+    }
+    searchResults.innerHTML = results.map((r, i) =>
+      `<div class="search-item" data-idx="${i}">${r.display_name}</div>`
+    ).join('');
+    searchResults.querySelectorAll('.search-item[data-idx]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const r = results[parseInt(el.dataset.idx, 10)];
+        const lat = parseFloat(r.lat), lon = parseFloat(r.lon);
+        map.setView([lat, lon], 12);
+        searchResults.style.display = 'none';
+        analyzeLocation(lat, lon);
+      });
+    });
+  } catch (e) {
+    searchResults.innerHTML = '<div class="search-item">Error buscando: ' + e.message + '</div>';
+  }
+}
+
+btnSearch.addEventListener('click', runSearch);
+searchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+
+// ---------------------------------------------------------------------
+// Geolocalizacion del navegador
+// ---------------------------------------------------------------------
+const btnGeolocate = document.getElementById('btnGeolocate');
+btnGeolocate.addEventListener('click', () => {
+  if (!navigator.geolocation) {
+    alert('Tu navegador no soporta geolocalización.');
+    return;
+  }
+  loadingMap.textContent = 'Obteniendo tu ubicación…';
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const { latitude, longitude } = pos.coords;
+      map.setView([latitude, longitude], 13);
+      analyzeLocation(latitude, longitude);
+    },
+    (err) => {
+      loadingMap.textContent = '';
+      alert('No se pudo obtener tu ubicación: ' + err.message);
+    }
+  );
+});
 </script>
 </body>
 </html>
