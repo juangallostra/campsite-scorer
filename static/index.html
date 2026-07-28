@@ -168,7 +168,25 @@
         <div>Orientación (<span id="wAspectVal">8</span>) <input type="range" id="wAspect" min="0" max="100" value="8" style="width:100%"></div>
         <div>Rugosidad (<span id="wRoughnessVal">10</span>) <input type="range" id="wRoughness" min="0" max="100" value="10" style="width:100%"></div>
       </div>
-      <p style="margin:10px 0 0; font-size:0.78rem;">Los valores son relativos entre sí (se normalizan solos). Se aplican en el próximo punto que analices.</p>
+      <p style="margin:10px 0 0; font-size:0.78rem;">
+        <b>¿Qué hace cada valor?</b> No son porcentajes absolutos, son
+        <b>pesos relativos</b>: el sistema los suma todos y calcula qué
+        proporción representa cada uno del total. Por eso, subir un slider
+        reduce automáticamente el peso relativo de los demás aunque no los
+        toques — lo que importa es la proporción entre ellos, no el número
+        en sí.
+      </p>
+      <p style="margin:8px 0 0; font-size:0.78rem;">
+        Por ejemplo, Pendiente=80 y Drenaje=20 da exactamente el mismo
+        resultado que Pendiente=40 y Drenaje=10 (en ambos casos, pendiente
+        pesa el cuádruple que drenaje). Poner un criterio a 0 lo elimina por
+        completo del cálculo. Y si subes uno solo muy por encima del resto,
+        el score empieza a depender casi únicamente de ese criterio — útil
+        si por ejemplo solo te importa la pendiente porque vas con una
+        furgoneta y el resto te da igual, pero ten en cuenta que pierdes la
+        vista de conjunto que dan los cinco factores combinados. Los cambios
+        se aplican en el próximo punto que analices, no reescriben análisis anteriores.
+      </p>
     </details>
 
     <div id="map"></div>
