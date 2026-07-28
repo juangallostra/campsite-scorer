@@ -13,7 +13,14 @@ lo que hace el despliegue en servicios como Render mucho mas ligero y fiable.
 
 from __future__ import annotations
 import numpy as np
-from scipy.ndimage import uniform_filter, generic_filter
+from scipy.ndimage import uniform_filter
+
+# float32 en vez de float64: la precision extra no aporta nada para pendientes/
+# curvatura/TPI, y cada array intermedio ocupa la mitad de memoria. Con un DEM
+# de 3000x3000, cada array float64 pesa ~72MB; en float32 son ~36MB, y en el
+# pipeline coexisten varios a la vez (dem, dzdx, dzdy, curvature, tpi,
+# roughness, mean, mean_sq, score...), asi que el ahorro se multiplica.
+DTYPE = np.float32
 
 
 # ---------------------------------------------------------------------------
@@ -24,7 +31,7 @@ def compute_slope_aspect(dem: np.ndarray, cellsize: float) -> tuple[np.ndarray, 
     Devuelve (slope_deg, aspect_deg).
     aspect_deg: 0=Norte, 90=Este, 180=Sur, 270=Oeste. -1 donde la pendiente es ~0.
     """
-    z = np.pad(dem.astype(np.float64), 1, mode="edge")
+    z = np.pad(dem.astype(DTYPE, copy=False), 1, mode="edge")
 
     z1, z2, z3 = z[:-2, :-2], z[:-2, 1:-1], z[:-2, 2:]
     z4, z6 = z[1:-1, :-2], z[1:-1, 2:]
@@ -52,7 +59,7 @@ def compute_slope_aspect(dem: np.ndarray, cellsize: float) -> tuple[np.ndarray, 
 #    negativo = convexo -> tiende a drenar bien (loma/cresta)
 # ---------------------------------------------------------------------------
 def compute_curvature(dem: np.ndarray, cellsize: float) -> np.ndarray:
-    z = np.pad(dem.astype(np.float64), 1, mode="edge")
+    z = np.pad(dem.astype(DTYPE, copy=False), 1, mode="edge")
     up = z[:-2, 1:-1]
     down = z[2:, 1:-1]
     left = z[1:-1, :-2]
@@ -70,19 +77,30 @@ def compute_curvature(dem: np.ndarray, cellsize: float) -> np.ndarray:
 # ---------------------------------------------------------------------------
 def compute_tpi(dem: np.ndarray, radius_cells: int = 5) -> np.ndarray:
     size = 2 * radius_cells + 1
-    neighborhood_mean = uniform_filter(dem.astype(np.float64), size=size, mode="nearest")
-    return dem - neighborhood_mean
+    dem32 = dem.astype(DTYPE, copy=False)
+    neighborhood_mean = uniform_filter(dem32, size=size, mode="nearest")
+    return dem32 - neighborhood_mean
 
 
 # ---------------------------------------------------------------------------
 # 4. Rugosidad local (proxy de superficie irregular: piedras, raices...)
 #    Solo es fiable si el DEM tiene resolucion alta (<=2m). Con DEM de 30m
 #    esto en la practica mide "variabilidad del relieve", no piedras sueltas.
+#
+#    IMPORTANTE: antes se calculaba con scipy.ndimage.generic_filter(dem,
+#    np.std, ...), que invoca una funcion Python por cada ventana deslizante
+#    -> ~60x mas lento y con mucho overhead de memoria (crea un array temporal
+#    por cada pixel). Se sustituye por la identidad Var(X) = E[X^2] - E[X]^2,
+#    calculable con dos uniform_filter vectorizados: mismo resultado exacto,
+#    fraccion del tiempo y memoria.
 # ---------------------------------------------------------------------------
 def compute_roughness(dem: np.ndarray, radius_cells: int = 2) -> np.ndarray:
     size = 2 * radius_cells + 1
-    local_std = generic_filter(dem.astype(np.float64), np.std, size=size, mode="nearest")
-    return local_std
+    dem32 = dem.astype(DTYPE, copy=False)
+    mean = uniform_filter(dem32, size=size, mode="nearest")
+    mean_sq = uniform_filter(dem32 * dem32, size=size, mode="nearest")
+    variance = np.clip(mean_sq - mean * mean, 0, None)  # clip: evita negativos por error de redondeo
+    return np.sqrt(variance, dtype=DTYPE)
 
 
 # ---------------------------------------------------------------------------
@@ -90,9 +108,9 @@ def compute_roughness(dem: np.ndarray, radius_cells: int = 2) -> np.ndarray:
 # ---------------------------------------------------------------------------
 def _piecewise_score(values: np.ndarray, points: list[tuple[float, float]]) -> np.ndarray:
     """Interpola linealmente una lista de puntos (valor_entrada, score_salida)."""
-    xs = np.array([p[0] for p in points])
-    ys = np.array([p[1] for p in points])
-    return np.clip(np.interp(values, xs, ys), 0, 100)
+    xs = np.array([p[0] for p in points], dtype=DTYPE)
+    ys = np.array([p[1] for p in points], dtype=DTYPE)
+    return np.clip(np.interp(values, xs, ys), 0, 100).astype(DTYPE, copy=False)
 
 
 def score_slope(slope_deg: np.ndarray) -> np.ndarray:

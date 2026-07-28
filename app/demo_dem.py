@@ -31,7 +31,7 @@ def generate_demo_dem(size: int = 200, cellsize: float = 5.0, seed: int = 42) ->
 
     dem = base_slope - valley + ridge + plateau + noise
     dem = dem - dem.min()
-    return dem.astype(np.float64)
+    return dem.astype(np.float32)
 
 
 def _smooth(arr: np.ndarray, iterations: int = 1) -> np.ndarray:
