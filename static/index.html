@@ -301,8 +301,8 @@ fileInput.addEventListener('change', (e) => {
 // Modo mapa interactivo (DEM real por coordenadas)
 // ---------------------------------------------------------------------
 const map = L.map('map').setView([41.6, 0.6], 9); // Pirineo/Lleida por defecto
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '&copy; OpenStreetMap contributors',
+L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+  attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)',
   maxZoom: 17,
 }).addTo(map);
 
