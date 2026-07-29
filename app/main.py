@@ -130,17 +130,21 @@ def _result_payload(
             score, cellsize=cellsize, min_score=zone_min_score,
             min_area_m2=min_area, max_zones=zone_max_count,
         )
-        payload["suitable_zones"] = [
-            {
+
+        suitable_zones = []
+        for i, z in enumerate(zones):
+            best_lat, best_lon = _rowcol_to_latlon(z["best_row"], z["best_col"], score.shape, bounds)
+            centroid_lat, centroid_lon = _rowcol_to_latlon(z["centroid_row"], z["centroid_col"], score.shape, bounds)
+            suitable_zones.append({
                 "rank": i + 1,
-                "lat": (ll := _rowcol_to_latlon(z["best_row"], z["best_col"], score.shape, bounds))[0],
-                "lon": ll[1],
+                "lat": best_lat, "lon": best_lon,  # mejor punto dentro de la zona (donde poner la tienda)
+                "centroid_lat": centroid_lat, "centroid_lon": centroid_lon,  # centro geometrico (para dibujar la extension)
+                "radius_m": (z["area_m2"] / np.pi) ** 0.5,  # radio de un circulo con la misma area -- aproximacion, la zona real no es circular
                 "best_score": z["best_score"],
                 "mean_score": z["mean_score"],
                 "area_m2": z["area_m2"],
-            }
-            for i, z in enumerate(zones)
-        ]
+            })
+        payload["suitable_zones"] = suitable_zones
 
     return payload
 
