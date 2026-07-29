@@ -13,7 +13,7 @@ lo que hace el despliegue en servicios como Render mucho mas ligero y fiable.
 
 from __future__ import annotations
 import numpy as np
-from scipy.ndimage import uniform_filter
+from scipy.ndimage import uniform_filter, label
 
 # float32 en vez de float64: la precision extra no aporta nada para pendientes/
 # curvatura/TPI, y cada array intermedio ocupa la mitad de memoria. Con un DEM
@@ -225,3 +225,64 @@ def score_to_rgb(score: np.ndarray) -> np.ndarray:
     b = np.full_like(r, 30, dtype=np.uint8)
     rgb = np.stack([r.astype(np.uint8), g.astype(np.uint8), b], axis=-1)
     return rgb
+
+
+# ---------------------------------------------------------------------------
+# 8. Deteccion de zonas contiguas aptas (no solo puntos aislados)
+# ---------------------------------------------------------------------------
+def find_suitable_zones(
+    score: np.ndarray,
+    cellsize: float,
+    min_score: float = 70.0,
+    min_area_m2: float = 25.0,
+    max_zones: int = 5,
+) -> list[dict]:
+    """
+    Agrupa las celdas con score >= min_score en regiones conectadas
+    (scipy.ndimage.label: 4-conectividad por defecto) y descarta las que no
+    llegan a un area minima real -- un solo pixel bueno rodeado de terreno
+    malo no sirve para poner una tienda.
+
+    Devuelve una lista de zonas (en coordenadas de fila/columna del array,
+    sin georreferenciar -- eso se hace en main.py, que es quien conoce los
+    bounds), ordenadas de mejor a peor por su score MEDIO (la calidad global
+    de la zona, no solo su pico), con el area como criterio de desempate.
+
+    LIMITACION: min_area_m2 solo es significativo si la resolucion del DEM
+    es suficientemente fina (cellsize pequeno). Con cellsize=100m, un solo
+    pixel ya cubre 10000 m2 y el filtro de area deja de discriminar nada.
+    """
+    if score.size == 0:
+        return []
+
+    mask = score >= min_score
+    labeled, num_features = label(mask)
+    if num_features == 0:
+        return []
+
+    px_area_m2 = float(cellsize) * float(cellsize)
+    zones = []
+    for zone_id in range(1, num_features + 1):
+        region_mask = labeled == zone_id
+        pixel_count = int(region_mask.sum())
+        area_m2 = pixel_count * px_area_m2
+        if area_m2 < min_area_m2:
+            continue
+
+        region_scores = np.where(region_mask, score, -np.inf)
+        best_row, best_col = np.unravel_index(np.argmax(region_scores), score.shape)
+        rows, cols = np.where(region_mask)
+
+        zones.append({
+            "best_row": int(best_row),
+            "best_col": int(best_col),
+            "best_score": float(score[best_row, best_col]),
+            "mean_score": float(score[region_mask].mean()),
+            "area_m2": area_m2,
+            "pixel_count": pixel_count,
+            "centroid_row": float(rows.mean()),
+            "centroid_col": float(cols.mean()),
+        })
+
+    zones.sort(key=lambda z: (z["mean_score"], z["area_m2"]), reverse=True)
+    return zones[:max_zones]

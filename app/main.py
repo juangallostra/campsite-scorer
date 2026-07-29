@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
-from app.terrain import compute_campsite_score, score_to_rgb
+from app.terrain import compute_campsite_score, score_to_rgb, find_suitable_zones
 from app.demo_dem import generate_demo_dem
 from app.dem_sources import fetch_dem_by_point, DemSourceError
 
@@ -62,9 +62,20 @@ def _downsample_grid(arr: np.ndarray, target: int = 50) -> list:
     return np.round(small, 1).tolist()
 
 
+def _rowcol_to_latlon(row: float, col: float, shape: tuple[int, int], bounds: dict) -> tuple[float, float]:
+    """Inversa de la proyeccion lineal que usa el frontend para mapear el click a una celda."""
+    rows, cols = shape
+    row_frac = row / (rows - 1) if rows > 1 else 0.0
+    col_frac = col / (cols - 1) if cols > 1 else 0.0
+    lat = bounds["north"] - row_frac * (bounds["north"] - bounds["south"])
+    lon = bounds["west"] + col_frac * (bounds["east"] - bounds["west"])
+    return lat, lon
+
+
 def _result_payload(
     dem: np.ndarray, cellsize: float, hemisphere: str = "N", bounds: dict | None = None,
-    weights: dict | None = None,
+    weights: dict | None = None, zone_min_score: float = 70.0, zone_min_area_m2: float | None = None,
+    zone_max_count: int = 5,
 ) -> dict:
     result = compute_campsite_score(dem, cellsize=cellsize, hemisphere=hemisphere, weights=weights)
     score = result["score"]
@@ -109,6 +120,27 @@ def _result_payload(
                 "roughness": _downsample_grid(result["sub_scores"]["roughness"]),
             },
         }
+
+        # Umbral de area adaptativo a la resolucion: por defecto, exige al menos
+        # ~2 pixeles conectados (un solo pixel bueno aislado no cuenta como
+        # "zona"), con un suelo de 25 m2 para DEM de muy alta resolucion.
+        min_area = zone_min_area_m2 if zone_min_area_m2 is not None else max(25.0, 2.0 * cellsize * cellsize)
+
+        zones = find_suitable_zones(
+            score, cellsize=cellsize, min_score=zone_min_score,
+            min_area_m2=min_area, max_zones=zone_max_count,
+        )
+        payload["suitable_zones"] = [
+            {
+                "rank": i + 1,
+                "lat": (ll := _rowcol_to_latlon(z["best_row"], z["best_col"], score.shape, bounds))[0],
+                "lon": ll[1],
+                "best_score": z["best_score"],
+                "mean_score": z["mean_score"],
+                "area_m2": z["area_m2"],
+            }
+            for i, z in enumerate(zones)
+        ]
 
     return payload
 
@@ -155,6 +187,9 @@ def score_by_location(
     radius_km: float = Query(3.0, gt=0, le=20),
     hemisphere: str | None = Query(None, pattern="^[NS]$"),
     weights: dict | None = Depends(_weight_params),
+    zone_min_score: float = Query(70.0, ge=0, le=100, description="Score minimo para considerar una celda 'apta' al agrupar zonas"),
+    zone_min_area_m2: float | None = Query(None, gt=0, description="Area minima en m2 para que una zona cuente. Si se omite, se calcula segun la resolucion (~2 pixeles)."),
+    zone_max_count: int = Query(5, ge=1, le=15, description="Numero maximo de zonas recomendadas a devolver"),
 ):
     """
     Descarga un DEM real (teselas de elevacion publicas) alrededor del punto
@@ -173,6 +208,9 @@ def score_by_location(
         hemisphere=hemi,
         bounds=dem_result.bounds,
         weights=weights,
+        zone_min_score=zone_min_score,
+        zone_min_area_m2=zone_min_area_m2,
+        zone_max_count=zone_max_count,
     )
 
 
