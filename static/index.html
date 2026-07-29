@@ -422,11 +422,16 @@ function renderZoneMarkers(zones, overlayPngBase64, overlayBounds) {
     currentZoneMarkers.push(zonesOverlay);
   }
 
+  // Misma paleta morada que zones_to_rgba() en el backend, para que el
+  // marcador combine con la zona sombreada y ambos se distingan claramente
+  // del rojo-amarillo-verde del heatmap de evaluacion.
+  const ZONE_PALETTE = ['#6a1b9a', '#8e44ad', '#9b59b6', '#af7ac5', '#c39bd3'];
+
   lastZonesData.forEach((z) => {
-    const l = scoreLabel(z.mean_score);
+    const zoneColor = ZONE_PALETTE[Math.min(z.rank - 1, ZONE_PALETTE.length - 1)];
     const icon = L.divIcon({
       className: 'zone-marker-icon',
-      html: `<div style="background:${l.color}; width:26px; height:26px; border-radius:50%; border:2px solid #1a2129; color:#1a2129; font-weight:700; font-size:12px; display:flex; align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,.5);">${z.rank}</div>`,
+      html: `<div style="background:${zoneColor}; width:26px; height:26px; border-radius:50%; border:2px solid #ffffff; color:#ffffff; font-weight:700; font-size:12px; display:flex; align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,.5);">${z.rank}</div>`,
       iconSize: [26, 26], iconAnchor: [13, 13],
     });
     const marker = L.marker([z.lat, z.lon], { icon, zIndexOffset: 1000 }).addTo(map);
