@@ -53,9 +53,13 @@ devuelve las mejores ordenadas por su score **medio** (no solo su pico).
 - Nuevos query params en `/api/score_by_location`: `zone_min_score` (umbral
   de "apto", 70 por defecto), `zone_min_area_m2` (override manual del área
   mínima), `zone_max_count` (cuántas zonas devolver, 5 por defecto).
-- El frontend pinta cada zona como un círculo numerado en el mapa — el
-  número marca el mejor punto *dentro* de esa zona, no su centro geométrico.
-  Clicar uno abre el mismo panel de desglose que un clic normal.
+- El frontend pinta cada zona con su **forma exacta a nivel de píxel**
+  (`zones_to_rgba()` en `terrain.py`: relleno semitransparente + borde
+  sólido calculado con `scipy.ndimage.binary_erosion`, no una aproximación
+  geométrica como un círculo) superpuesta sobre el mapa, más un círculo
+  numerado en el mejor punto *dentro* de esa zona. Clicar el número abre el
+  mismo panel de desglose que un clic normal. Checkbox para activar/
+  desactivar toda la capa sin volver a pedir datos al servidor.
 
 **Limitación**: una zona "apta" según el DEM puede tener rocas, vegetación
 densa o ser propiedad privada — sigue sin sustituir la inspección visual.
