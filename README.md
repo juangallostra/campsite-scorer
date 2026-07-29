@@ -38,6 +38,30 @@ La resolución real depende del zoom elegido según el radio pedido
 (`_zoom_for_radius` en `dem_sources.py`): a más radio, menor resolución, para
 mantener manejable el número de teselas descargadas (límite `MAX_TILES=64`).
 
+## Zonas aptas contiguas y puntos recomendados
+
+En vez de fiarse de un solo píxel bueno (que puede estar rodeado de terreno
+malo y no dejar espacio real para una tienda), `find_suitable_zones()` en
+`terrain.py` agrupa las celdas con score alto en regiones conectadas
+(`scipy.ndimage.label`), descarta las que no llegan a un área mínima real, y
+devuelve las mejores ordenadas por su score **medio** (no solo su pico).
+
+- El área mínima es **adaptativa a la resolución**: por defecto exige al
+  menos ~2 píxeles conectados (`max(25, 2 * cellsize²)` m²), no un número
+  fijo — con la resolución típica del mapa (20-150m/píxel) un umbral fijo
+  bajo (ej. 25m²) no filtraría nada, porque un solo píxel ya supera esa área.
+- Nuevos query params en `/api/score_by_location`: `zone_min_score` (umbral
+  de "apto", 70 por defecto), `zone_min_area_m2` (override manual del área
+  mínima), `zone_max_count` (cuántas zonas devolver, 5 por defecto).
+- El frontend pinta cada zona como un círculo numerado en el mapa — el
+  número marca el mejor punto *dentro* de esa zona, no su centro geométrico.
+  Clicar uno abre el mismo panel de desglose que un clic normal.
+
+**Limitación**: una zona "apta" según el DEM puede tener rocas, vegetación
+densa o ser propiedad privada — sigue sin sustituir la inspección visual.
+Zonas que tocan el borde del área analizada pueden aparecer artificialmente
+cortadas (el análisis no ve lo que hay justo fuera del radio elegido).
+
 ## Más funcionalidades añadidas
 
 - **Buscador de topónimos**: campo de búsqueda que usa Nominatim (geocoding
