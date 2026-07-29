@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
-from app.terrain import compute_campsite_score, score_to_rgb, find_suitable_zones
+from app.terrain import compute_campsite_score, score_to_rgb, find_suitable_zones, zones_to_rgba
 from app.demo_dem import generate_demo_dem
 from app.dem_sources import fetch_dem_by_point, DemSourceError
 
@@ -33,8 +33,9 @@ app.add_middleware(
 )
 
 
-def _array_to_png_base64(rgb: np.ndarray) -> str:
-    img = Image.fromarray(rgb, mode="RGB")
+def _array_to_png_base64(arr: np.ndarray) -> str:
+    mode = "RGBA" if arr.shape[-1] == 4 else "RGB"
+    img = Image.fromarray(arr, mode=mode)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode("utf-8")
@@ -126,7 +127,7 @@ def _result_payload(
         # "zona"), con un suelo de 25 m2 para DEM de muy alta resolucion.
         min_area = zone_min_area_m2 if zone_min_area_m2 is not None else max(25.0, 2.0 * cellsize * cellsize)
 
-        zones = find_suitable_zones(
+        zones, labeled = find_suitable_zones(
             score, cellsize=cellsize, min_score=zone_min_score,
             min_area_m2=min_area, max_zones=zone_max_count,
         )
@@ -134,17 +135,20 @@ def _result_payload(
         suitable_zones = []
         for i, z in enumerate(zones):
             best_lat, best_lon = _rowcol_to_latlon(z["best_row"], z["best_col"], score.shape, bounds)
-            centroid_lat, centroid_lon = _rowcol_to_latlon(z["centroid_row"], z["centroid_col"], score.shape, bounds)
             suitable_zones.append({
                 "rank": i + 1,
                 "lat": best_lat, "lon": best_lon,  # mejor punto dentro de la zona (donde poner la tienda)
-                "centroid_lat": centroid_lat, "centroid_lon": centroid_lon,  # centro geometrico (para dibujar la extension)
-                "radius_m": (z["area_m2"] / np.pi) ** 0.5,  # radio de un circulo con la misma area -- aproximacion, la zona real no es circular
                 "best_score": z["best_score"],
                 "mean_score": z["mean_score"],
                 "area_m2": z["area_m2"],
             })
         payload["suitable_zones"] = suitable_zones
+
+        if zones:
+            # forma EXACTA de cada zona (relleno + borde), no una aproximacion
+            # geometrica -- mismo tamano y bounds que el heatmap principal,
+            # asi que se superpone pixel a pixel sobre el mapa.
+            payload["zones_overlay_png_base64"] = _array_to_png_base64(zones_to_rgba(score.shape, labeled, zones))
 
     return payload
 

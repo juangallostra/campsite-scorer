@@ -236,29 +236,32 @@ def find_suitable_zones(
     min_score: float = 70.0,
     min_area_m2: float = 25.0,
     max_zones: int = 5,
-) -> list[dict]:
+) -> tuple[list[dict], np.ndarray]:
     """
     Agrupa las celdas con score >= min_score en regiones conectadas
     (scipy.ndimage.label: 4-conectividad por defecto) y descarta las que no
     llegan a un area minima real -- un solo pixel bueno rodeado de terreno
     malo no sirve para poner una tienda.
 
-    Devuelve una lista de zonas (en coordenadas de fila/columna del array,
-    sin georreferenciar -- eso se hace en main.py, que es quien conoce los
-    bounds), ordenadas de mejor a peor por su score MEDIO (la calidad global
-    de la zona, no solo su pico), con el area como criterio de desempate.
+    Devuelve (zonas, labeled): la lista de zonas (en coordenadas de fila/
+    columna del array, sin georreferenciar -- eso se hace en main.py, que es
+    quien conoce los bounds), ordenadas de mejor a peor por su score MEDIO
+    (la calidad global de la zona, no solo su pico); y el array `labeled`
+    completo (mismo shape que `score`, cada pixel con el id de su zona o 0
+    si no pertenece a ninguna) para poder pintar la forma EXACTA de cada
+    zona en main.py, en vez de aproximarla con un circulo.
 
     LIMITACION: min_area_m2 solo es significativo si la resolucion del DEM
     es suficientemente fina (cellsize pequeno). Con cellsize=100m, un solo
     pixel ya cubre 10000 m2 y el filtro de area deja de discriminar nada.
     """
     if score.size == 0:
-        return []
+        return [], np.zeros_like(score, dtype=np.int32)
 
     mask = score >= min_score
     labeled, num_features = label(mask)
     if num_features == 0:
-        return []
+        return [], labeled
 
     px_area_m2 = float(cellsize) * float(cellsize)
     zones = []
@@ -274,6 +277,7 @@ def find_suitable_zones(
         rows, cols = np.where(region_mask)
 
         zones.append({
+            "zone_id": zone_id,
             "best_row": int(best_row),
             "best_col": int(best_col),
             "best_score": float(score[best_row, best_col]),
@@ -285,4 +289,49 @@ def find_suitable_zones(
         })
 
     zones.sort(key=lambda z: (z["mean_score"], z["area_m2"]), reverse=True)
-    return zones[:max_zones]
+    return zones[:max_zones], labeled
+
+
+# ---------------------------------------------------------------------------
+# 9. Pintar la forma EXACTA de las zonas recomendadas (relleno + borde),
+#    como un array RGBA transparente salvo en los pixeles de esas zonas.
+# ---------------------------------------------------------------------------
+def _zone_color(mean_score: float) -> tuple[int, int, int]:
+    """Mismo esquema de color que scoreLabel() en el frontend, para que coincidan."""
+    if mean_score >= 80:
+        return (46, 204, 113)   # #2ecc71 excelente
+    if mean_score >= 60:
+        return (163, 217, 119)  # #a3d977 bueno
+    if mean_score >= 40:
+        return (241, 196, 15)   # #f1c40f regular
+    if mean_score >= 20:
+        return (230, 126, 34)   # #e67e22 malo
+    return (231, 76, 60)        # #e74c3c muy malo
+
+
+def zones_to_rgba(shape: tuple[int, int], labeled: np.ndarray, zones: list[dict]) -> np.ndarray:
+    """
+    RGBA (H,W,4) uint8, transparente salvo en las zonas recomendadas:
+    relleno semitransparente + borde solido en el contorno exacto de cada
+    region (mask XOR erosion), no una aproximacion geometrica.
+    """
+    from scipy.ndimage import binary_erosion
+
+    rgba = np.zeros((*shape, 4), dtype=np.uint8)
+    for z in zones:
+        region_mask = labeled == z["zone_id"]
+        color = _zone_color(z["mean_score"])
+        eroded = binary_erosion(region_mask, iterations=1)
+        border = region_mask & ~eroded
+
+        rgba[region_mask, 0] = color[0]
+        rgba[region_mask, 1] = color[1]
+        rgba[region_mask, 2] = color[2]
+        rgba[region_mask, 3] = 70  # relleno semitransparente
+
+        rgba[border, 0] = color[0]
+        rgba[border, 1] = color[1]
+        rgba[border, 2] = color[2]
+        rgba[border, 3] = 235  # borde solido
+
+    return rgba
