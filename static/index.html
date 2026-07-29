@@ -169,6 +169,10 @@
       <span id="radiusLabel">3 km</span>
       <button id="btnToggleLayer" class="secondary" disabled>Quitar capa de análisis</button>
       <button id="btnDownload" class="secondary" disabled>⬇️ Descargar PNG</button>
+      <label style="display:flex; align-items:center; gap:6px; font-size:0.85rem; cursor:pointer;">
+        <input type="checkbox" id="toggleZones" checked style="width:16px; height:16px; cursor:pointer;">
+        Zonas recomendadas
+      </label>
       <span id="loadingMap"></span>
     </div>
 
@@ -392,6 +396,8 @@ let currentInspectGrid = null;
 let currentBounds = null;
 let currentResolutionM = null;
 let currentZoneMarkers = [];
+let zonesEnabled = true;
+let lastZonesData = [];
 
 function clearZoneMarkers() {
   currentZoneMarkers.forEach((m) => map.removeLayer(m));
@@ -400,8 +406,29 @@ function clearZoneMarkers() {
 
 function renderZoneMarkers(zones) {
   clearZoneMarkers();
-  (zones || []).forEach((z) => {
+  lastZonesData = zones || [];
+  if (!zonesEnabled) return;
+
+  lastZonesData.forEach((z) => {
     const l = scoreLabel(z.mean_score);
+
+    // circulo aproximado con la extension de la zona: centrado en el
+    // centroide real (no en el punto marcado, que es el mejor punto dentro
+    // de la zona y puede estar desplazado si la forma es irregular), con un
+    // radio que da la misma area que la zona real (la forma real casi nunca
+    // es circular, es una aproximacion visual).
+    const circle = L.circle([z.centroid_lat, z.centroid_lon], {
+      radius: z.radius_m,
+      color: l.color, weight: 1.5, opacity: 0.8,
+      fillColor: l.color, fillOpacity: 0.12,
+      dashArray: '4 4',
+    }).addTo(map);
+    circle.bindTooltip(
+      `Zona #${z.rank} — ${l.text} (media ${z.mean_score.toFixed(0)}, área ~${Math.round(z.area_m2).toLocaleString('es')} m²)`,
+      { direction: 'top', sticky: true }
+    );
+    currentZoneMarkers.push(circle);
+
     const icon = L.divIcon({
       className: 'zone-marker-icon',
       html: `<div style="background:${l.color}; width:26px; height:26px; border-radius:50%; border:2px solid #1a2129; color:#1a2129; font-weight:700; font-size:12px; display:flex; align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,.5);">${z.rank}</div>`,
@@ -409,13 +436,23 @@ function renderZoneMarkers(zones) {
     });
     const marker = L.marker([z.lat, z.lon], { icon, zIndexOffset: 1000 }).addTo(map);
     marker.bindTooltip(
-      `#${z.rank} — ${l.text} (media ${z.mean_score.toFixed(0)}, área ~${Math.round(z.area_m2).toLocaleString('es')} m²)`,
+      `#${z.rank} — mejor punto de la zona (${z.best_score.toFixed(0)}/100)`,
       { direction: 'top' }
     );
     marker.on('click', () => showInspectPopup(z.lat, z.lon));
     currentZoneMarkers.push(marker);
   });
 }
+
+const toggleZonesCheckbox = document.getElementById('toggleZones');
+toggleZonesCheckbox.addEventListener('change', () => {
+  zonesEnabled = toggleZonesCheckbox.checked;
+  if (zonesEnabled) {
+    renderZoneMarkers(lastZonesData); // re-pinta con los datos ya descargados, sin volver a pedir al servidor
+  } else {
+    clearZoneMarkers();
+  }
+});
 
 function nearestGridValue(grid, lat, lon, bounds) {
   const rows = grid.length, cols = grid[0].length;
