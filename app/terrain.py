@@ -296,31 +296,37 @@ def find_suitable_zones(
 # 9. Pintar la forma EXACTA de las zonas recomendadas (relleno + borde),
 #    como un array RGBA transparente salvo en los pixeles de esas zonas.
 # ---------------------------------------------------------------------------
-def _zone_color(mean_score: float) -> tuple[int, int, int]:
-    """Mismo esquema de color que scoreLabel() en el frontend, para que coincidan."""
-    if mean_score >= 80:
-        return (46, 204, 113)   # #2ecc71 excelente
-    if mean_score >= 60:
-        return (163, 217, 119)  # #a3d977 bueno
-    if mean_score >= 40:
-        return (241, 196, 15)   # #f1c40f regular
-    if mean_score >= 20:
-        return (230, 126, 34)   # #e67e22 malo
-    return (231, 76, 60)        # #e74c3c muy malo
+# Paleta deliberadamente FUERA de la escala rojo-amarillo-verde que usa el
+# heatmap de evaluacion (score_to_rgb) -- para que a simple vista se note que
+# es una capa distinta ("zonas recomendadas"), no una repeticion del score.
+# Morado mas oscuro = mejor ranking (#1), mas claro = peor de las top-N.
+_ZONE_PALETTE = [
+    (106, 27, 154),   # #6a1b9a - zona #1
+    (142, 68, 173),   # #8e44ad - zona #2
+    (155, 89, 182),   # #9b59b6 - zona #3
+    (175, 122, 197),  # #af7ac5 - zona #4
+    (195, 155, 211),  # #c39bd3 - zona #5 en adelante
+]
+
+
+def _zone_color(rank_index: int) -> tuple[int, int, int]:
+    return _ZONE_PALETTE[min(rank_index, len(_ZONE_PALETTE) - 1)]
 
 
 def zones_to_rgba(shape: tuple[int, int], labeled: np.ndarray, zones: list[dict]) -> np.ndarray:
     """
     RGBA (H,W,4) uint8, transparente salvo en las zonas recomendadas:
     relleno semitransparente + borde solido en el contorno exacto de cada
-    region (mask XOR erosion), no una aproximacion geometrica.
+    region (mask XOR erosion), no una aproximacion geometrica. `zones` ya
+    viene ordenado de mejor a peor (ver find_suitable_zones), asi que el
+    indice en la lista determina el tono de morado.
     """
     from scipy.ndimage import binary_erosion
 
     rgba = np.zeros((*shape, 4), dtype=np.uint8)
-    for z in zones:
+    for i, z in enumerate(zones):
         region_mask = labeled == z["zone_id"]
-        color = _zone_color(z["mean_score"])
+        color = _zone_color(i)
         eroded = binary_erosion(region_mask, iterations=1)
         border = region_mask & ~eroded
 
